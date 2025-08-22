@@ -1,0 +1,298 @@
+name: Weekly Docker Build
+
+on:
+  schedule:
+    # Every Monday at 2 AM UTC
+    - cron: '0 2 * * 1'
+  
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if no changes'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: henriqueslab/rxiv-maker-base
+
+jobs:
+  # Weekly builds always execute (no change detection needed)
+  weekly-build:
+    name: Weekly Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate build metadata
+        id: meta
+        run: |
+          # Generate weekly tag with current date
+          WEEKLY_DATE=$(date +%Y-%m-%d)
+          WEEKLY_TAG="weekly-${WEEKLY_DATE}"
+          
+          echo "weekly_tag=${WEEKLY_TAG}" >> $GITHUB_OUTPUT
+          echo "build_date=${WEEKLY_DATE}" >> $GITHUB_OUTPUT
+          echo "📅 Weekly build for: ${WEEKLY_DATE}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: docker_meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=weekly
+            type=raw,value=${{ steps.meta.outputs.weekly_tag }}
+            type=sha,prefix=weekly-sha-
+
+      - name: Prepare platform name
+        id: platform
+        run: |
+          SAFE_PLATFORM=$(echo "${{ matrix.platform }}" | sed 's/\//-/g')
+          echo "safe_name=${SAFE_PLATFORM}" >> $GITHUB_OUTPUT
+
+      - name: Build platform-specific image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: images/base/Dockerfile
+          platforms: ${{ matrix.platform }}
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          push: false
+          # Force fresh build for weekly (no cache from)
+          cache-to: type=gha,scope=weekly-build-${{ matrix.platform }},mode=max
+          outputs: type=docker,dest=/tmp/image-${{ steps.platform.outputs.safe_name }}.tar
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+            REFRESH_PACKAGES=1
+        continue-on-error: false
+        timeout-minutes: 50
+
+      - name: Verify build output
+        run: |
+          IMAGE_FILE="/tmp/image-${{ steps.platform.outputs.safe_name }}.tar"
+          if [ -f "$IMAGE_FILE" ]; then
+            echo "✅ Build artifact created: $IMAGE_FILE"
+            echo "📦 Size: $(du -h $IMAGE_FILE | cut -f1)"
+            
+            # Integrity check
+            if tar -tf "$IMAGE_FILE" >/dev/null 2>&1; then
+              echo "✅ Image integrity verified"
+            else
+              echo "❌ Image integrity check failed"
+              exit 1
+            fi
+          else
+            echo "❌ Build artifact missing"
+            exit 1
+          fi
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-docker-image-${{ steps.platform.outputs.safe_name }}
+          path: /tmp/image-${{ steps.platform.outputs.safe_name }}.tar
+          retention-days: 3
+
+  # Test weekly builds
+  test-weekly-images:
+    name: Test Weekly Images
+    runs-on: ubuntu-latest
+    needs: weekly-build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Load and test images
+        run: |
+          echo "📥 Loading weekly build images..."
+          
+          # Load all platform images
+          find artifacts -name "*.tar" -type f | while read image_file; do
+            echo "Loading: $image_file"
+            docker load --input "$image_file"
+          done
+
+          echo "🧪 Testing weekly image functionality..."
+          
+          # Enhanced testing for weekly builds
+          docker run --rm --timeout=90s ${{ env.IMAGE_NAME }}:weekly python3 -c "
+          import sys, subprocess, pkg_resources
+          print(f'🐍 Python version: {sys.version}')
+          
+          # Test core dependencies
+          try:
+              import numpy, matplotlib, pandas, yaml, requests
+              print('✅ Core scientific libraries available')
+          except ImportError as e:
+              print(f'❌ Missing core libraries: {e}')
+              sys.exit(1)
+          
+          # Test LaTeX availability
+          try:
+              result = subprocess.run(['pdflatex', '--version'], capture_output=True, text=True)
+              if result.returncode == 0:
+                  print('✅ LaTeX environment ready')
+              else:
+                  print('❌ LaTeX not available')
+                  sys.exit(1)
+          except FileNotFoundError:
+              print('❌ LaTeX not found in PATH')
+              sys.exit(1)
+          
+          # Test R availability  
+          try:
+              result = subprocess.run(['R', '--version'], capture_output=True, text=True)
+              if result.returncode == 0:
+                  print('✅ R environment ready')
+              else:
+                  print('❌ R not available')
+                  sys.exit(1)
+          except FileNotFoundError:
+              print('❌ R not found in PATH')
+              sys.exit(1)
+          
+          print('✅ Weekly Docker image comprehensive test passed!')
+          "
+
+  # Push weekly builds to registry
+  push-weekly-to-registry:
+    name: Push Weekly to Registry
+    runs-on: ubuntu-latest
+    needs: [weekly-build, test-weekly-images]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate metadata
+        id: meta
+        run: |
+          WEEKLY_DATE=$(date +%Y-%m-%d)
+          WEEKLY_TAG="weekly-${WEEKLY_DATE}"
+          echo "weekly_tag=${WEEKLY_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: docker_meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=weekly
+            type=raw,value=${{ steps.meta.outputs.weekly_tag }}
+            type=raw,value=weekly-latest
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PUSH }}
+
+      - name: Build and push weekly multi-platform image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: images/base/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          push: true
+          cache-from: |
+            type=gha,scope=weekly-build-linux-amd64
+            type=gha,scope=weekly-build-linux-arm64
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+            REFRESH_PACKAGES=1
+        timeout-minutes: 50
+
+      - name: Verify pushed weekly images
+        run: |
+          echo "🔍 Verifying weekly images..."
+          
+          # Wait a moment for images to propagate
+          sleep 30
+          
+          # Test primary weekly tag
+          if docker pull ${{ env.IMAGE_NAME }}:weekly; then
+            echo "✅ Weekly image pulled successfully"
+            
+            # Quick functionality test
+            if docker run --rm --timeout=60s ${{ env.IMAGE_NAME }}:weekly python3 --version; then
+              echo "✅ Weekly image verification successful"
+            else
+              echo "❌ Weekly image functionality test failed"
+              exit 1
+            fi
+          else
+            echo "❌ Failed to pull weekly image"
+            exit 1
+          fi
+
+  # Weekly build summary
+  weekly-summary:
+    name: Weekly Build Summary
+    runs-on: ubuntu-latest
+    needs: [weekly-build, test-weekly-images, push-weekly-to-registry]
+    if: always()
+
+    steps:
+      - name: Generate weekly summary
+        run: |
+          echo "## 📅 Weekly Docker Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          WEEKLY_DATE=$(date +%Y-%m-%d)
+          echo "**Build Date:** ${WEEKLY_DATE}" >> $GITHUB_STEP_SUMMARY
+          echo "**Event:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ needs.weekly-build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | ${{ needs.test-weekly-images.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Push | ${{ needs.push-weekly-to-registry.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.push-weekly-to-registry.result }}" == "success" ]; then
+            echo "**✅ Weekly build completed successfully!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📦 **Available Tags:**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`henriqueslab/rxiv-maker-base:weekly\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`henriqueslab/rxiv-maker-base:weekly-${WEEKLY_DATE}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`henriqueslab/rxiv-maker-base:weekly-latest\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**❌ Weekly build failed**" >> $GITHUB_STEP_SUMMARY
+            echo "Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          fi

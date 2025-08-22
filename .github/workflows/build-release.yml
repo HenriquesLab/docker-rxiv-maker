@@ -1,0 +1,409 @@
+name: Release Docker Build
+
+on:
+  repository_dispatch:
+    types: [rxiv-maker-release]
+  
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag from main rxiv-maker repo (e.g., v1.5.25)'
+        required: true
+        type: string
+      is_latest:
+        description: 'Tag as latest (for stable releases)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: henriqueslab/rxiv-maker-base
+
+jobs:
+  # Validate release information
+  validate-release:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.validate.outputs.release_tag }}
+      version_tag: ${{ steps.validate.outputs.version_tag }}
+      is_latest: ${{ steps.validate.outputs.is_latest }}
+      is_prerelease: ${{ steps.validate.outputs.is_prerelease }}
+
+    steps:
+      - name: Validate release inputs
+        id: validate
+        run: |
+          # Get release tag from input or webhook
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            RELEASE_TAG="${{ github.event.client_payload.tag_name }}"
+            IS_LATEST="${{ github.event.client_payload.is_latest }}"
+            IS_PRERELEASE="${{ github.event.client_payload.prerelease }}"
+          else
+            RELEASE_TAG="${{ github.event.inputs.release_tag }}"
+            IS_LATEST="${{ github.event.inputs.is_latest }}"
+            IS_PRERELEASE="false"
+          fi
+          
+          echo "Release tag: ${RELEASE_TAG}"
+          echo "Is latest: ${IS_LATEST}"
+          echo "Is prerelease: ${IS_PRERELEASE}"
+          
+          # Validate release tag format (should be vX.Y.Z or vX.Y.Z-suffix)
+          if [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
+            echo "✅ Valid release tag format: ${RELEASE_TAG}"
+          else
+            echo "❌ Invalid release tag format: ${RELEASE_TAG}"
+            exit 1
+          fi
+          
+          # Extract version without 'v' prefix
+          VERSION_TAG="${RELEASE_TAG#v}"
+          echo "Version tag: ${VERSION_TAG}"
+          
+          # Set outputs
+          echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
+          echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
+          echo "is_prerelease=${IS_PRERELEASE}" >> $GITHUB_OUTPUT
+
+  # Build release images
+  release-build:
+    name: Release Build
+    runs-on: ubuntu-latest
+    needs: validate-release
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.validate-release.outputs.release_tag }}
+            type=raw,value=${{ needs.validate-release.outputs.version_tag }}
+            type=raw,value=latest,enable=${{ needs.validate-release.outputs.is_latest == 'true' }}
+            type=raw,value=stable,enable=${{ needs.validate-release.outputs.is_prerelease == 'false' }}
+
+      - name: Prepare platform name
+        id: platform
+        run: |
+          SAFE_PLATFORM=$(echo "${{ matrix.platform }}" | sed 's/\//-/g')
+          echo "safe_name=${SAFE_PLATFORM}" >> $GITHUB_OUTPUT
+
+      - name: Build platform-specific image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: images/base/Dockerfile
+          platforms: ${{ matrix.platform }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.version=${{ needs.validate-release.outputs.version_tag }}
+            org.opencontainers.image.title=rxiv-maker-base
+            org.opencontainers.image.description=Docker base image for rxiv-maker ${{ needs.validate-release.outputs.release_tag }}
+            rxiv-maker.release-tag=${{ needs.validate-release.outputs.release_tag }}
+            rxiv-maker.is-latest=${{ needs.validate-release.outputs.is_latest }}
+          push: false
+          cache-from: type=gha,scope=release-build-${{ matrix.platform }}
+          cache-to: type=gha,scope=release-build-${{ matrix.platform }},mode=max
+          outputs: type=docker,dest=/tmp/image-${{ steps.platform.outputs.safe_name }}.tar
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+            RXIV_MAKER_VERSION=${{ needs.validate-release.outputs.release_tag }}
+        continue-on-error: false
+        timeout-minutes: 50
+
+      - name: Verify build output
+        run: |
+          IMAGE_FILE="/tmp/image-${{ steps.platform.outputs.safe_name }}.tar"
+          if [ -f "$IMAGE_FILE" ]; then
+            SIZE_MB=$(du -m "$IMAGE_FILE" | cut -f1)
+            echo "✅ Release build artifact: $IMAGE_FILE (${SIZE_MB}MB)"
+            
+            # Enhanced integrity check for releases
+            if tar -tf "$IMAGE_FILE" | grep -q "manifest.json"; then
+              echo "✅ Image manifest verified"
+            else
+              echo "❌ Image manifest check failed"
+              exit 1
+            fi
+          else
+            echo "❌ Build artifact missing"
+            exit 1
+          fi
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-image-${{ needs.validate-release.outputs.release_tag }}-${{ steps.platform.outputs.safe_name }}
+          path: /tmp/image-${{ steps.platform.outputs.safe_name }}.tar
+          retention-days: 30  # Keep release builds longer
+
+  # Test release builds
+  test-release-images:
+    name: Test Release Images
+    runs-on: ubuntu-latest
+    needs: [validate-release, release-build]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Load and test images
+        run: |
+          echo "📥 Loading release build images..."
+          
+          # Load all platform images
+          find artifacts -name "*.tar" -type f | while read image_file; do
+            echo "Loading: $image_file"
+            docker load --input "$image_file"
+          done
+          
+          echo "🧪 Testing release image functionality..."
+          
+          RELEASE_TAG="${{ needs.validate-release.outputs.release_tag }}"
+          
+          # Comprehensive release testing
+          docker run --rm --timeout=180s ${{ env.IMAGE_NAME }}:${RELEASE_TAG} bash -c "
+          set -e
+          
+          echo '🔍 Release Image Information:'
+          echo '  Release Tag: ${RELEASE_TAG}'
+          echo '  Build Date:' \$(date)
+          echo ''
+          
+          echo '🐍 Python Environment Test...'
+          python3 -c '
+          import sys, platform
+          print(f\"  Python: {sys.version.split()[0]}\")
+          print(f\"  Platform: {platform.platform()}\")
+          
+          # Core dependencies
+          import numpy, pandas, matplotlib, scipy
+          print(f\"  NumPy: {numpy.__version__}\")
+          print(f\"  Pandas: {pandas.__version__}\")
+          print(f\"  Matplotlib: {matplotlib.__version__}\")
+          print(f\"  SciPy: {scipy.__version__}\")
+          
+          # Web and processing
+          import requests, yaml, PIL
+          print(f\"  Requests: {requests.__version__}\")
+          print(f\"  PyYAML: {yaml.__version__}\")
+          print(f\"  Pillow: {PIL.__version__}\")
+          
+          print(\"✅ Python environment complete\")
+          '
+          
+          echo '🔧 LaTeX Environment Test...'
+          LATEX_VERSION=\$(pdflatex --version | head -1)
+          echo \"  LaTeX: \${LATEX_VERSION}\"
+          
+          BIBTEX_VERSION=\$(bibtex --version | head -1 2>&1 || echo 'BibTeX available')
+          echo \"  BibTeX: \${BIBTEX_VERSION}\"
+          
+          # Test basic LaTeX compilation
+          echo '\\documentclass{article}\\begin{document}Test\\end{document}' > test.tex
+          if pdflatex -interaction=nonstopmode test.tex >/dev/null 2>&1; then
+            echo '✅ LaTeX compilation works'
+          else
+            echo '❌ LaTeX compilation failed'
+            exit 1
+          fi
+          
+          echo '📊 R Environment Test...'
+          R_VERSION=\$(R --version | head -1)
+          echo \"  R: \${R_VERSION}\"
+          
+          # Test R packages
+          R -e '
+          cat(\"  Packages installed:\\n\")
+          for (pkg in c(\"ggplot2\", \"dplyr\", \"scales\")) {
+            if (require(pkg, character.only=TRUE, quietly=TRUE)) {
+              cat(sprintf(\"    %s: %s\\n\", pkg, packageVersion(pkg)))
+            }
+          }
+          cat(\"✅ R environment complete\\n\")
+          ' 2>/dev/null
+          
+          echo '🎨 System Resources Test...'
+          echo \"  Fonts available: \$(fc-list | wc -l)\"
+          echo \"  Memory: \$(free -h | grep Mem | awk '{print \$2}')\"
+          echo \"  Disk: \$(df -h / | tail -1 | awk '{print \$4}')\"
+          
+          echo ''
+          echo '✅ Release image comprehensive test completed successfully!'
+          "
+
+  # Push release images to registry
+  push-release-to-registry:
+    name: Push Release to Registry
+    runs-on: ubuntu-latest
+    needs: [validate-release, release-build, test-release-images]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.validate-release.outputs.release_tag }}
+            type=raw,value=${{ needs.validate-release.outputs.version_tag }}
+            type=raw,value=latest,enable=${{ needs.validate-release.outputs.is_latest == 'true' }}
+            type=raw,value=stable,enable=${{ needs.validate-release.outputs.is_prerelease == 'false' }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PUSH }}
+
+      - name: Build and push release multi-platform image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: images/base/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.version=${{ needs.validate-release.outputs.version_tag }}
+            org.opencontainers.image.title=rxiv-maker-base
+            org.opencontainers.image.description=Docker base image for rxiv-maker ${{ needs.validate-release.outputs.release_tag }}
+            rxiv-maker.release-tag=${{ needs.validate-release.outputs.release_tag }}
+            rxiv-maker.is-latest=${{ needs.validate-release.outputs.is_latest }}
+          push: true
+          cache-from: |
+            type=gha,scope=release-build-linux-amd64
+            type=gha,scope=release-build-linux-arm64
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+            RXIV_MAKER_VERSION=${{ needs.validate-release.outputs.release_tag }}
+        timeout-minutes: 50
+
+      - name: Verify pushed release images
+        run: |
+          echo "🔍 Verifying pushed release images..."
+          
+          RELEASE_TAG="${{ needs.validate-release.outputs.release_tag }}"
+          IS_LATEST="${{ needs.validate-release.outputs.is_latest }}"
+          
+          # Wait for propagation
+          sleep 45
+          
+          # Test release tag
+          echo "Testing release tag: ${RELEASE_TAG}"
+          if docker pull ${{ env.IMAGE_NAME }}:${RELEASE_TAG}; then
+            echo "✅ Release tag pulled successfully"
+            
+            # Verify functionality
+            if docker run --rm --timeout=90s ${{ env.IMAGE_NAME }}:${RELEASE_TAG} python3 -c "
+            import sys
+            print(f'✅ Release image verification: Python {sys.version.split()[0]}')
+            "; then
+              echo "✅ Release image functionality verified"
+            else
+              echo "❌ Release image functionality test failed"
+              exit 1
+            fi
+          else
+            echo "❌ Failed to pull release tag"
+            exit 1
+          fi
+          
+          # Test latest tag if applicable
+          if [ "${IS_LATEST}" = "true" ]; then
+            echo "Testing latest tag..."
+            if docker pull ${{ env.IMAGE_NAME }}:latest; then
+              echo "✅ Latest tag updated successfully"
+            else
+              echo "❌ Failed to update latest tag"
+              exit 1
+            fi
+          fi
+
+  # Release build summary
+  release-summary:
+    name: Release Build Summary
+    runs-on: ubuntu-latest
+    needs: [validate-release, release-build, test-release-images, push-release-to-registry]
+    if: always()
+
+    steps:
+      - name: Generate release summary
+        run: |
+          echo "## 🏷️ Release Docker Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "**Release Tag:** \`${{ needs.validate-release.outputs.release_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.validate-release.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Latest Tag:** ${{ needs.validate-release.outputs.is_latest }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Prerelease:** ${{ needs.validate-release.outputs.is_prerelease }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Validation | ${{ needs.validate-release.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ needs.release-build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | ${{ needs.test-release-images.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Push | ${{ needs.push-release-to-registry.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.push-release-to-registry.result }}" == "success" ]; then
+            echo "**✅ Release build completed successfully!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📦 **Available Tags:**" >> $GITHUB_STEP_SUMMARY
+            echo "- \`henriqueslab/rxiv-maker-base:${{ needs.validate-release.outputs.release_tag }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`henriqueslab/rxiv-maker-base:${{ needs.validate-release.outputs.version_tag }}\`" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "${{ needs.validate-release.outputs.is_latest }}" == "true" ]; then
+              echo "- \`henriqueslab/rxiv-maker-base:latest\` ⭐" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            if [ "${{ needs.validate-release.outputs.is_prerelease }}" == "false" ]; then
+              echo "- \`henriqueslab/rxiv-maker-base:stable\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🔗 **Docker Hub:** https://hub.docker.com/r/henriqueslab/rxiv-maker-base" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**❌ Release build failed**" >> $GITHUB_STEP_SUMMARY
+            echo "Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          fi
