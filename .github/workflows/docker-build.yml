@@ -4,19 +4,15 @@ on:
   push:
     branches: [main, dev]
     paths:
-      - 'src/docker/**'
-      - 'src/py/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
+      - 'images/**'
+      - 'scripts/**'
       - '.github/workflows/docker-build.yml'
 
   pull_request:
     branches: [main, dev]
     paths:
-      - 'src/docker/**'
-      - 'src/py/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
+      - 'images/**'
+      - 'scripts/**'
       - '.github/workflows/docker-build.yml'
 
   release:
@@ -126,7 +122,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: src/docker/images/base/Dockerfile
+          file: images/base/Dockerfile
           platforms: ${{ matrix.platform }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -275,7 +271,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: src/docker/images/base/Dockerfile
+          file: images/base/Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
