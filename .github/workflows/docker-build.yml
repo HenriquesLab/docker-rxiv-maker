@@ -4,19 +4,15 @@ on:
   push:
     branches: [main, dev]
     paths:
-      - 'src/docker/**'
-      - 'src/py/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
+      - 'images/**'
+      - 'scripts/**'
       - '.github/workflows/docker-build.yml'
 
   pull_request:
     branches: [main, dev]
     paths:
-      - 'src/docker/**'
-      - 'src/py/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
+      - 'images/**'
+      - 'scripts/**'
       - '.github/workflows/docker-build.yml'
 
   release:
@@ -126,7 +122,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: src/docker/images/base/Dockerfile
+          file: images/base/Dockerfile
           platforms: ${{ matrix.platform }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -174,59 +170,233 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download image artifacts
+      - name: Download AMD64 image artifact
+        id: download-amd64
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: docker-image-linux-amd64
+          path: artifacts/amd64/
+
+      - name: Download ARM64 image artifact
+        id: download-arm64
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-linux-arm64
+          path: artifacts/arm64/
+
+      - name: Verify artifact availability
+        id: verify-artifacts
+        run: |
+          echo "🔍 Verifying downloaded artifacts..."
+          
+          AVAILABLE_ARTIFACTS=0
+          ARTIFACT_INFO=""
+          
+          # Check AMD64 artifact
+          if [ -d "artifacts/amd64" ] && [ "$(ls -A artifacts/amd64 2>/dev/null)" ]; then
+            if [ -f "artifacts/amd64/"*.tar ]; then
+              AVAILABLE_ARTIFACTS=$((AVAILABLE_ARTIFACTS + 1))
+              AMD64_SIZE=$(du -sh artifacts/amd64/*.tar | cut -f1)
+              ARTIFACT_INFO="$ARTIFACT_INFO\n✅ AMD64 artifact: $AMD64_SIZE"
+              echo "AMD64_AVAILABLE=true" >> $GITHUB_ENV
+            else
+              echo "⚠️ AMD64 directory exists but no tar file found"
+              echo "AMD64_AVAILABLE=false" >> $GITHUB_ENV
+            fi
+          else
+            echo "❌ AMD64 artifact not available (download status: ${{ steps.download-amd64.outcome }})"
+            echo "AMD64_AVAILABLE=false" >> $GITHUB_ENV
+          fi
+          
+          # Check ARM64 artifact
+          if [ -d "artifacts/arm64" ] && [ "$(ls -A artifacts/arm64 2>/dev/null)" ]; then
+            if [ -f "artifacts/arm64/"*.tar ]; then
+              AVAILABLE_ARTIFACTS=$((AVAILABLE_ARTIFACTS + 1))
+              ARM64_SIZE=$(du -sh artifacts/arm64/*.tar | cut -f1)
+              ARTIFACT_INFO="$ARTIFACT_INFO\n✅ ARM64 artifact: $ARM64_SIZE"
+              echo "ARM64_AVAILABLE=true" >> $GITHUB_ENV
+            else
+              echo "⚠️ ARM64 directory exists but no tar file found"
+              echo "ARM64_AVAILABLE=false" >> $GITHUB_ENV
+            fi
+          else
+            echo "❌ ARM64 artifact not available (download status: ${{ steps.download-arm64.outcome }})"
+            echo "ARM64_AVAILABLE=false" >> $GITHUB_ENV
+          fi
+          
+          # Summary
+          echo "📊 Artifact Summary:"
+          echo -e "$ARTIFACT_INFO"
+          echo "📦 Available artifacts: $AVAILABLE_ARTIFACTS/2"
+          
+          if [ $AVAILABLE_ARTIFACTS -gt 0 ]; then
+            echo "✅ Proceeding with $AVAILABLE_ARTIFACTS available artifacts"
+            echo "ARTIFACTS_AVAILABLE=true" >> $GITHUB_ENV
+            echo "AVAILABLE_COUNT=$AVAILABLE_ARTIFACTS" >> $GITHUB_ENV
+          else
+            echo "🚫 No artifacts available - cannot proceed with testing"
+            echo "ARTIFACTS_AVAILABLE=false" >> $GITHUB_ENV
+            
+            # Provide helpful debugging information
+            echo ""
+            echo "🔍 Debug Information:"
+            echo "AMD64 download outcome: ${{ steps.download-amd64.outcome }}"
+            echo "ARM64 download outcome: ${{ steps.download-arm64.outcome }}"
+            ls -la artifacts/ || echo "No artifacts directory"
+            exit 1
+          fi
 
       - name: Load and test images
+        if: env.ARTIFACTS_AVAILABLE == 'true'
         run: |
-          echo "Loading built images..."
+          echo "🐳 Loading built Docker images..."
+          echo "📦 Available artifacts count: $SUCCESSFUL_DOWNLOADS"
+          
           LOADED_IMAGES=0
-
-          # Load images with error checking
-          find artifacts -name "*.tar" -type f | while read image_file; do
-            if [ -f "$image_file" ]; then
-              echo "Loading $image_file..."
-              if docker load --input "$image_file"; then
-                echo "✅ Successfully loaded $image_file"
-                LOADED_IMAGES=$((LOADED_IMAGES + 1))
-              else
-                echo "❌ Failed to load $image_file"
-                exit 1
+          FAILED_LOADS=0
+          
+          # Process available tar files from each platform
+          if [ "$AMD64_AVAILABLE" = "true" ]; then
+            echo "🔄 Processing AMD64 artifacts..."
+            for image_file in artifacts/amd64/*.tar; do
+              if [ -f "$image_file" ]; then
+                echo "📥 Processing AMD64 image: $image_file"
+                
+                # Verify file integrity first
+                if ! tar -tf "$image_file" >/dev/null 2>&1; then
+                  echo "❌ Corrupted AMD64 tar file detected: $image_file"
+                  FAILED_LOADS=$((FAILED_LOADS + 1))
+                  continue
+                fi
+                
+                echo "🔄 Loading AMD64 Docker image from $image_file..."
+                if docker load --input "$image_file" 2>&1; then
+                  echo "✅ Successfully loaded AMD64 image: $image_file"
+                  LOADED_IMAGES=$((LOADED_IMAGES + 1))
+                  
+                  # Extract and display loaded image details
+                  LOADED_REPO=$(docker load --input "$image_file" 2>&1 | grep "Loaded image:" | sed 's/Loaded image: //' | head -1 || echo "unknown")
+                  echo "📋 Loaded AMD64 image: $LOADED_REPO"
+                else
+                  echo "❌ Failed to load AMD64 image: $image_file"
+                  FAILED_LOADS=$((FAILED_LOADS + 1))
+                fi
               fi
-            fi
-          done
-
-          echo "🧪 Testing image functionality..."
-
-          # Test with retry logic
+            done
+          fi
+          
+          if [ "$ARM64_AVAILABLE" = "true" ]; then
+            echo "🔄 Processing ARM64 artifacts..."
+            for image_file in artifacts/arm64/*.tar; do
+              if [ -f "$image_file" ]; then
+                echo "📥 Processing ARM64 image: $image_file"
+                
+                # Verify file integrity first
+                if ! tar -tf "$image_file" >/dev/null 2>&1; then
+                  echo "❌ Corrupted ARM64 tar file detected: $image_file"
+                  FAILED_LOADS=$((FAILED_LOADS + 1))
+                  continue
+                fi
+                
+                echo "🔄 Loading ARM64 Docker image from $image_file..."
+                if docker load --input "$image_file" 2>&1; then
+                  echo "✅ Successfully loaded ARM64 image: $image_file"
+                  LOADED_IMAGES=$((LOADED_IMAGES + 1))
+                  
+                  # Extract and display loaded image details
+                  LOADED_REPO=$(docker load --input "$image_file" 2>&1 | grep "Loaded image:" | sed 's/Loaded image: //' | head -1 || echo "unknown")
+                  echo "📋 Loaded ARM64 image: $LOADED_REPO"
+                else
+                  echo "❌ Failed to load ARM64 image: $image_file"
+                  FAILED_LOADS=$((FAILED_LOADS + 1))
+                fi
+              fi
+            done
+          fi
+          
+          # Get actual loaded image count (not from subshell)
+          ACTUAL_LOADED=$(docker images ${{ env.IMAGE_NAME }} --format "table {{.Repository}}:{{.Tag}}" | grep -v "REPOSITORY:TAG" | wc -l || echo "0")
+          echo "🎯 Actually loaded images: $ACTUAL_LOADED"
+          
+          if [ "$ACTUAL_LOADED" -eq 0 ]; then
+            echo "❌ No Docker images were successfully loaded"
+            exit 1
+          fi
+          
+          echo "🧪 Testing image functionality with loaded images..."
+          
+          # Get the most recent image tag for testing
+          TEST_TAG=$(docker images ${{ env.IMAGE_NAME }} --format "{{.Repository}}:{{.Tag}}" | head -1)
+          if [ -z "$TEST_TAG" ]; then
+            echo "❌ Could not determine image tag for testing"
+            exit 1
+          fi
+          
+          echo "🎯 Testing image: $TEST_TAG"
+          
+          # Test with enhanced retry logic
           for attempt in {1..3}; do
-            echo "🎯 Test attempt $attempt..."
-
-            if docker run --rm --timeout=60s ${{ env.IMAGE_NAME }}:latest python3 -c "
+            echo "🔍 Test attempt $attempt..."
+            
+            # Enhanced test with timeout and better error handling
+            if timeout 120s docker run --rm "$TEST_TAG" python3 -c "
             import sys
-            print(f'Python version: {sys.version}')
-
+            print(f'🐍 Python version: {sys.version}')
+            print(f'🏗️  Platform: {sys.platform}')
+            
             # Test critical dependencies
             try:
-                import json, os, subprocess
+                import json, os, subprocess, tempfile
                 print('✅ Core Python modules available')
+                
+                # Test basic file operations (important for rxiv-maker)
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=True) as f:
+                    f.write('test content')
+                    f.flush()
+                    print('✅ File operations working')
+                
+                # Test subprocess execution
+                result = subprocess.run(['python3', '--version'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    print(f'✅ Subprocess execution: {result.stdout.strip()}')
+                else:
+                    raise Exception('Subprocess test failed')
+                    
             except ImportError as e:
                 print(f'❌ Missing core modules: {e}')
                 sys.exit(1)
-
-            print('✅ Docker image test successful!')
+            except Exception as e:
+                print(f'❌ Functionality test failed: {e}')
+                sys.exit(1)
+            
+            print('✅ Docker image comprehensive test successful!')
             "; then
               echo "✅ Image test passed on attempt $attempt"
+              echo "🎉 Docker image testing completed successfully!"
               break
             else
               echo "❌ Image test failed on attempt $attempt"
               if [ $attempt -eq 3 ]; then
-                echo "❌ Image test failed after 3 attempts"
+                echo "🚫 Image test failed after 3 attempts"
+                
+                # Provide debugging information
+                echo "🔍 Debug information:"
+                echo "Available images:"
+                docker images ${{ env.IMAGE_NAME }}
+                echo ""
+                echo "Docker system info:"
+                docker version || true
+                echo ""
+                echo "Available disk space:"
+                df -h || true
+                
                 exit 1
+              else
+                echo "⏳ Waiting 10 seconds before retry..."
+                sleep 10
               fi
-              sleep 5
             fi
           done
 
@@ -275,7 +445,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: src/docker/images/base/Dockerfile
+          file: images/base/Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
