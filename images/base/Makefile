@@ -2,8 +2,8 @@
 # Rxiv-Maker Docker Image Management Makefile (AMD64 only)
 # ======================================================================
 # This Makefile contains developer/maintainer commands for building and
-# managing Docker images. End users should use the main Makefile with
-# RXIV_ENGINE=DOCKER for containerized builds.
+# managing Docker images. End users should run rxiv-maker commands directly
+# within Docker containers for containerized execution.
 #
 # ARCHITECTURE: AMD64 and ARM64 supported
 # Works on all architectures without browser dependencies
@@ -230,8 +230,8 @@ help:
 	@echo "  - Handles memory constraints and timeouts gracefully"
 	@echo "  - Use *-fast targets for debugging if safe mode has issues"
 	@echo ""
-	@echo "📝 NOTE: End users should use the main Makefile with RXIV_ENGINE=DOCKER"
-	@echo "         for containerized builds. These commands are for maintainers."
+	@echo "📝 NOTE: End users should run rxiv-maker commands directly within Docker containers."
+	@echo "         These Makefile commands are for Docker image maintainers only."
 
 # Default target
 .DEFAULT_GOAL := help

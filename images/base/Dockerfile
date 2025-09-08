@@ -90,6 +90,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     r-cran-httr \
     r-cran-jsonlite \
     r-cran-xml2 \
+    r-cran-lubridate \
+    r-cran-rvest \
     # Graphics packages (these were the problematic ones taking 44+ minutes!)
     r-cran-systemfonts \
     r-cran-ragg \
@@ -235,35 +237,33 @@ RUN echo '#!/bin/bash' > /usr/local/bin/verify-python-deps.sh && \
     echo 'echo "Testing other Python dependencies..."' >> /usr/local/bin/verify-python-deps.sh && \
     echo 'python3 -c "import matplotlib.pyplot, numpy, pandas, seaborn, yaml; print(\"✅ Core scientific libraries verified!\")"' >> /usr/local/bin/verify-python-deps.sh && \
     echo 'echo "Testing R Ubuntu packages (ultra-fast install verification)..."' >> /usr/local/bin/verify-python-deps.sh && \
-    echo 'R -e "ubuntu_packages <- c(\"cli\", \"rlang\", \"lifecycle\", \"vctrs\", \"magrittr\", \"stringi\", \"stringr\", \"httr\", \"jsonlite\", \"xml2\", \"systemfonts\", \"ragg\"); for (pkg in ubuntu_packages) { if (require(pkg, character.only = TRUE, quietly = TRUE)) { cat(\"✅ Ubuntu R package:\", pkg, \"\\n\") } else { cat(\"❌ Missing:\", pkg, \"\\n\"); quit(status = 1) } }"' >> /usr/local/bin/verify-python-deps.sh && \
+    echo 'R -e "ubuntu_packages <- c(\"cli\", \"rlang\", \"lifecycle\", \"vctrs\", \"magrittr\", \"stringi\", \"stringr\", \"httr\", \"jsonlite\", \"xml2\", \"lubridate\", \"rvest\", \"systemfonts\", \"ragg\"); for (pkg in ubuntu_packages) { if (require(pkg, character.only = TRUE, quietly = TRUE)) { cat(\"✅ Ubuntu R package:\", pkg, \"\\n\") } else { cat(\"❌ Missing:\", pkg, \"\\n\"); quit(status = 1) } }"' >> /usr/local/bin/verify-python-deps.sh && \
     echo 'R -e "system_packages <- c(\"dplyr\", \"ggplot2\", \"scales\", \"readr\", \"tidyr\", \"svglite\"); for (pkg in system_packages) { if (require(pkg, character.only = TRUE, quietly = TRUE)) { cat(\"✅ System R package:\", pkg, \"\\n\") } else { cat(\"❌ Missing:\", pkg, \"\\n\"); quit(status = 1) } }"' >> /usr/local/bin/verify-python-deps.sh && \
     echo 'echo "All dependencies (Python + R) verified successfully!"' >> /usr/local/bin/verify-python-deps.sh
 RUN chmod +x /usr/local/bin/verify-python-deps.sh
 
-# Create runtime dependency installation script for development mode
-RUN echo '#!/bin/bash' > /usr/local/bin/install-project-deps.sh && \
-    echo 'set -e' >> /usr/local/bin/install-project-deps.sh && \
-    echo 'echo "[INFO] Installing project dependencies from pyproject.toml..."' >> /usr/local/bin/install-project-deps.sh && \
-    echo 'if [ ! -f "/workspace/pyproject.toml" ]; then' >> /usr/local/bin/install-project-deps.sh && \
-    echo '    echo "[WARNING] No pyproject.toml found in /workspace"' >> /usr/local/bin/install-project-deps.sh && \
-    echo '    echo "[WARNING] Mount your project directory to /workspace to enable runtime dependency injection"' >> /usr/local/bin/install-project-deps.sh && \
-    echo '    exit 0' >> /usr/local/bin/install-project-deps.sh && \
-    echo 'fi' >> /usr/local/bin/install-project-deps.sh && \
-    echo 'echo "[INFO] Installing project dependencies with uv..."' >> /usr/local/bin/install-project-deps.sh && \
-    echo 'cd /workspace' >> /usr/local/bin/install-project-deps.sh && \
-    echo 'uv pip install --system -e . --no-cache-dir --force-reinstall' >> /usr/local/bin/install-project-deps.sh && \
-    echo 'echo "[SUCCESS] Project dependencies installed successfully!"' >> /usr/local/bin/install-project-deps.sh && \
-    echo 'echo "[INFO] Verifying imports..."' >> /usr/local/bin/install-project-deps.sh && \
-    echo 'python3 -c "import sys; sys.path.insert(0, \"/workspace/src\"); from rxiv_maker.utils.cache_utils import get_cache_dir; from rxiv_maker.validators.doi_validator import DOIValidator; print(\"✅ Runtime dependency injection successful!\")"' >> /usr/local/bin/install-project-deps.sh
-RUN chmod +x /usr/local/bin/install-project-deps.sh
+# Add APT repository and install rxiv-maker
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && curl -fsSL https://raw.githubusercontent.com/HenriquesLab/apt-rxiv-maker/apt-repo/pubkey.gpg | \
+       gpg --dearmor -o /usr/share/keyrings/rxiv-maker.gpg \
+    && echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/rxiv-maker.gpg] https://raw.githubusercontent.com/HenriquesLab/apt-rxiv-maker/apt-repo stable main' > /etc/apt/sources.list.d/rxiv-maker.list \
+    && apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends rxiv-maker \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create development mode startup script
-RUN echo '#!/bin/bash' > /usr/local/bin/dev-mode.sh && \
-    echo 'echo "Starting Rxiv-Maker development mode..."' >> /usr/local/bin/dev-mode.sh && \
-    echo '/usr/local/bin/install-project-deps.sh' >> /usr/local/bin/dev-mode.sh && \
-    echo 'echo "Ready for development! Project dependencies are synchronized."' >> /usr/local/bin/dev-mode.sh && \
-    echo 'exec /bin/bash "$@"' >> /usr/local/bin/dev-mode.sh
-RUN chmod +x /usr/local/bin/dev-mode.sh
+# Create UV upgrade script for latest version (for standalone Docker execution)
+RUN echo '#!/bin/bash' > /usr/local/bin/upgrade-to-latest-rxiv.sh && \
+    echo 'set -e' >> /usr/local/bin/upgrade-to-latest-rxiv.sh && \
+    echo 'echo "[INFO] Upgrading to latest rxiv-maker from PyPI..."' >> /usr/local/bin/upgrade-to-latest-rxiv.sh && \
+    echo 'uv pip install --system --upgrade rxiv-maker --no-cache-dir --force-reinstall' >> /usr/local/bin/upgrade-to-latest-rxiv.sh && \
+    echo 'echo "[SUCCESS] Latest rxiv-maker installed!"' >> /usr/local/bin/upgrade-to-latest-rxiv.sh && \
+    echo 'rxiv --version' >> /usr/local/bin/upgrade-to-latest-rxiv.sh && \
+    chmod +x /usr/local/bin/upgrade-to-latest-rxiv.sh
+
+# Verify APT installation during build
+RUN rxiv --version && echo "✅ Stable rxiv-maker installed via APT"
 
 # Note: siunitx package is included via texlive-science package
 
@@ -272,12 +272,12 @@ RUN /usr/local/bin/verify-python-deps.sh
 
 # Add labels for metadata
 LABEL maintainer="Rxiv-Maker Project"
-LABEL description="Ubuntu R Packages Optimized Docker Image for Rxiv-Maker - 80-95% speedup, ARM64 timeout fix"
-LABEL version="2.3.0-single-stage-ubuntu-r"
+LABEL description="Ubuntu-based Docker Image with APT-installed Rxiv-Maker - Stable base with latest upgrade capability"
+LABEL version="2.4.0-apt-integrated"
 LABEL org.opencontainers.image.source="https://github.com/henriqueslab/rxiv-maker"
-LABEL org.opencontainers.image.description="Single-stage Ubuntu-based image with Ubuntu R packages optimization - 80-95% build speedup, ARM64 timeout fix"
+LABEL org.opencontainers.image.description="Ubuntu-based image with rxiv-maker from APT repository and UV upgrade capability"
 LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.variant="single-stage-ubuntu-r-optimized"
+LABEL org.opencontainers.image.variant="apt-integrated-with-upgrade"
 
 # For GitHub Actions, we need to stay as root to allow workspace access
 # USER rxivmaker

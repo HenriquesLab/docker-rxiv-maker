@@ -122,13 +122,16 @@ docker run -it --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest dev
 
 ## Usage with Rxiv-Maker
 
-### CLI Integration
+### Standalone Docker Execution
 ```bash
-# Use Docker engine mode (with runtime injection)
-RXIV_ENGINE=docker rxiv pdf
+# Run rxiv-maker commands directly in Docker container
+docker run -it --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest rxiv pdf
 
-# Use Podman engine mode  
-RXIV_ENGINE=podman rxiv pdf
+# Interactive development mode with dependency sync
+docker run -it --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest dev-mode.sh
+
+# Batch processing mode
+docker run --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest rxiv pdf MANUSCRIPT/
 ```
 
 ### Manual Docker Usage
@@ -138,14 +141,16 @@ RXIV_ENGINE=podman rxiv pdf
 # Interactive development with dependency sync
 docker run -it --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest dev-mode.sh
 
-# One-time dependency installation
+# One-time dependency installation then run commands
 docker run --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest install-project-deps.sh
+docker run --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest rxiv pdf
 ```
 
 **Production Mode:**
 ```bash
-# Use pre-installed dependencies
+# Use pre-installed dependencies for direct execution
 docker run -it --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest
+# Inside container: rxiv pdf, rxiv validate, etc.
 ```
 
 ## Development
@@ -238,21 +243,21 @@ Images are now built in this dedicated repository using specialized workflows:
 
 ## Integration with Main Repository
 
-The main rxiv-maker repository now uses these pre-built images instead of building them during CI. This provides:
+The main rxiv-maker repository has migrated to a local-only architecture. Users who need Docker functionality should use this repository directly instead of the deprecated engine system. This provides:
 
-- **Faster CI**: No more 45-minute Docker builds in main repo
-- **Better reliability**: Stable, tested images available on schedule
-- **Independent updates**: Docker dependencies can update without affecting main releases
-- **Resource efficiency**: Dedicated CI resources for image building
+- **Cleaner Architecture**: Main repo focuses on local execution while this repo handles containerized workflows
+- **Better Reliability**: Stable, tested images available on schedule
+- **Independent Updates**: Docker dependencies can update without affecting main repo releases  
+- **Resource Efficiency**: Dedicated CI resources for image building and Docker-specific features
 
 ## Migration Benefits
 
-This repository was created by extracting Docker image building logic from the main rxiv-maker repository. The separation provides:
+This repository provides the complete Docker solution for rxiv-maker after the deprecation of container engines in the main repository. This architecture provides:
 
-- **Cleaner main repo**: Focuses on rxiv-maker functionality
-- **Specialized CI**: Docker-optimized workflows and caching
-- **Independent schedules**: Images build on their own timeline
-- **Better maintenance**: Dedicated space for Docker infrastructure
+- **Cleaner Separation**: Main repo focuses on local execution, this repo handles all containerized workflows
+- **Specialized Infrastructure**: Docker-optimized workflows, caching, and CI/CD pipelines
+- **Independent Development**: Images and Docker features can evolve independently
+- **Complete Docker Solution**: All container-related functionality in one dedicated repository
 
 ## License
 
