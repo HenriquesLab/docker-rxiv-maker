@@ -1,9 +1,8 @@
 # ======================================================================
 # Rxiv-Maker Base Docker Image - Ubuntu R Packages Optimized (Single Stage)
 # ======================================================================
-# This Docker image contains all system dependencies for Rxiv-Maker
-# but NO Python code or rxiv-maker specific logic.
-#
+# This Docker image contains all dependencies AND pre-installed rxiv-maker.
+# Ready for direct terminal usage with no runtime dependency installation needed.#
 # ARCHITECTURE SUPPORT: AMD64 and ARM64
 #
 # 🚀 REVOLUTIONARY UBUNTU R PACKAGES OPTIMIZATION:
@@ -242,28 +241,22 @@ RUN echo '#!/bin/bash' > /usr/local/bin/verify-python-deps.sh && \
     echo 'echo "All dependencies (Python + R) verified successfully!"' >> /usr/local/bin/verify-python-deps.sh
 RUN chmod +x /usr/local/bin/verify-python-deps.sh
 
-# Add APT repository and install rxiv-maker
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends ca-certificates \
-    && curl -fsSL https://raw.githubusercontent.com/HenriquesLab/apt-rxiv-maker/apt-repo/pubkey.gpg | \
-       gpg --dearmor -o /usr/share/keyrings/rxiv-maker.gpg \
-    && echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/rxiv-maker.gpg] https://raw.githubusercontent.com/HenriquesLab/apt-rxiv-maker/apt-repo stable main' > /etc/apt/sources.list.d/rxiv-maker.list \
-    && apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends rxiv-maker \
-    && rm -rf /var/lib/apt/lists/*
+# Install rxiv-maker via UV during build time (NEW POLICY)
+# This replaces the old APT installation + runtime dependency injection approach
+RUN echo "[INFO] Installing rxiv-maker via UV during Docker build..." && \
+    uv pip install --system rxiv-maker --no-cache-dir && \
+    echo "[SUCCESS] Rxiv-maker installed via UV!" && \
+    rxiv --version
 
-# Create UV upgrade script for latest version (for standalone Docker execution)
-RUN echo '#!/bin/bash' > /usr/local/bin/upgrade-to-latest-rxiv.sh && \
-    echo 'set -e' >> /usr/local/bin/upgrade-to-latest-rxiv.sh && \
-    echo 'echo "[INFO] Upgrading to latest rxiv-maker from PyPI..."' >> /usr/local/bin/upgrade-to-latest-rxiv.sh && \
-    echo 'uv pip install --system --upgrade rxiv-maker --no-cache-dir --force-reinstall' >> /usr/local/bin/upgrade-to-latest-rxiv.sh && \
-    echo 'echo "[SUCCESS] Latest rxiv-maker installed!"' >> /usr/local/bin/upgrade-to-latest-rxiv.sh && \
-    echo 'rxiv --version' >> /usr/local/bin/upgrade-to-latest-rxiv.sh && \
-    chmod +x /usr/local/bin/upgrade-to-latest-rxiv.sh
+# Verify installation during build to catch issues early
+RUN echo "[INFO] Verifying rxiv-maker installation..." && \
+    rxiv --version && \
+    echo "✅ Rxiv-maker ready for terminal usage"
 
-# Verify APT installation during build
-RUN rxiv --version && echo "✅ Stable rxiv-maker installed via APT"
+# Copy terminal-focused helper scripts (NEW POLICY)
+COPY ../../scripts/workspace-setup.sh /usr/local/bin/workspace-setup.sh
+COPY ../../scripts/usage.sh /usr/local/bin/usage.sh
+RUN chmod +x /usr/local/bin/workspace-setup.sh /usr/local/bin/usage.sh
 
 # Note: siunitx package is included via texlive-science package
 
@@ -272,12 +265,12 @@ RUN /usr/local/bin/verify-python-deps.sh
 
 # Add labels for metadata
 LABEL maintainer="Rxiv-Maker Project"
-LABEL description="Ubuntu-based Docker Image with APT-installed Rxiv-Maker - Stable base with latest upgrade capability"
-LABEL version="2.4.0-apt-integrated"
+LABEL description="Ubuntu-based Docker Image with Pre-installed Rxiv-Maker via UV - Ready for Terminal Usage"
+LABEL version="2.5.0-uv-preinstalled"
 LABEL org.opencontainers.image.source="https://github.com/henriqueslab/rxiv-maker"
 LABEL org.opencontainers.image.description="Ubuntu-based image with rxiv-maker from APT repository and UV upgrade capability"
 LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.variant="apt-integrated-with-upgrade"
+LABEL org.opencontainers.image.variant="uv-preinstalled"
 
 # For GitHub Actions, we need to stay as root to allow workspace access
 # USER rxivmaker

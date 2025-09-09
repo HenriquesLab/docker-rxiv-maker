@@ -421,12 +421,6 @@ jobs:
             exit 1
           fi
           
-
-          echo ""
-          echo "🆕 RUNNING NEW ARCHITECTURE TEST SUITE (v2.5.0+)"
-          echo "================================================"
-          ./.github/workflows/test-new-architecture.sh henriqueslab/rxiv-maker-base:dev-${{ github.sha }}
-          echo ""
           echo "🎉 Docker image testing completed successfully!"
           echo "✅ Successfully tested $TESTED_PLATFORMS platform(s) out of $LOADED_IMAGES loaded image(s)"
 

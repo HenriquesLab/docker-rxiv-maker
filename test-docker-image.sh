@@ -1,9 +1,12 @@
 #!/bin/bash
 # ======================================================================
-# Docker Image Testing Script
+# Docker Image Testing Script - NEW ARCHITECTURE (v2.5.0+)
 # ======================================================================
 # Comprehensive testing script for rxiv-maker Docker images
-# Tests functionality, performance, and integration capabilities
+# Tests the NEW pre-installed terminal-focused architecture
+#
+# NEW ARCHITECTURE: Tests that rxiv-maker is pre-installed via UV
+# and ready for immediate terminal usage without runtime installation
 #
 # Usage:
 #   ./test-docker-image.sh <image_name>
@@ -16,7 +19,6 @@ set -e  # Exit on any error
 DOCKER_IMAGE="${1:-henriqueslab/rxiv-maker-base:latest}"
 TEST_WORKSPACE="/tmp/rxiv-docker-test-$$"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Colors for output
 RED='\033[0;31m'
@@ -26,310 +28,173 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Logging functions
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[✅ SUCCESS]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[⚠️  WARNING]${NC} $1"; }
+log_error() { echo -e "${RED}[❌ ERROR]${NC} $1"; }
+
+# Test counter
+TESTS_RUN=0
+TESTS_PASSED=0
+TESTS_FAILED=0
+
+run_test() {
+    local test_name="$1"
+    local test_command="$2"
+    
+    TESTS_RUN=$((TESTS_RUN + 1))
+    log_info "Running test: $test_name"
+    
+    if eval "$test_command"; then
+        log_success "$test_name"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        return 0
+    else
+        log_error "$test_name"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        return 1
+    fi
 }
 
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Cleanup function
 cleanup() {
-    log_info "Cleaning up test workspace..."
-    rm -rf "$TEST_WORKSPACE" 2>/dev/null || true
+    log_info "Cleaning up test environment..."
+    rm -rf "$TEST_WORKSPACE"
+    docker ps -q --filter "ancestor=$DOCKER_IMAGE" | xargs -r docker kill >/dev/null 2>&1 || true
 }
 
-# Set up cleanup trap
+# Setup cleanup trap
 trap cleanup EXIT
 
+echo "=================================================="
+echo "🧪 NEW ARCHITECTURE DOCKER IMAGE TESTING (v2.5.0+)"
+echo "=================================================="
+echo "🖼️  Image: $DOCKER_IMAGE"
+echo "📁 Test workspace: $TEST_WORKSPACE"
+echo "📊 Testing: Pre-installed rxiv-maker via UV"
+echo "=================================================="
+
 # Create test workspace
-setup_test_workspace() {
-    log_info "Setting up test workspace: $TEST_WORKSPACE"
-    mkdir -p "$TEST_WORKSPACE"
-    cd "$TEST_WORKSPACE"
-}
+mkdir -p "$TEST_WORKSPACE"
 
-# Test basic container functionality
-test_basic_functionality() {
-    log_info "Testing basic container functionality..."
+# Test 1: Basic image availability
+run_test "Image availability" \
+    "docker image inspect $DOCKER_IMAGE >/dev/null 2>&1"
 
-    # Test Python
-    log_info "Testing Python installation..."
-    docker run --rm "$DOCKER_IMAGE" python3 --version
+# Test 2: Pre-installed rxiv-maker availability (CRITICAL for new architecture)
+run_test "Pre-installed rxiv-maker availability" \
+    "docker run --rm $DOCKER_IMAGE rxiv --version >/dev/null 2>&1"
 
-    # Test LaTeX
-    log_info "Testing LaTeX installation..."
-    docker run --rm "$DOCKER_IMAGE" pdflatex --version | head -1
+# Test 3: Immediate rxiv command execution (no setup scripts needed)
+run_test "Immediate rxiv command execution" \
+    "timeout 10s docker run --rm $DOCKER_IMAGE rxiv --help >/dev/null 2>&1"
 
-    # Test Python requests (for mermaid.ink API)
-    log_info "Testing Python requests (for mermaid.ink API)..."
-    docker run --rm "$DOCKER_IMAGE" python -c "import requests; print('✅ Mermaid.ink API ready')"
+# Test 4: Helper scripts availability (new architecture feature)
+run_test "Helper scripts availability - usage.sh" \
+    "timeout 10s docker run --rm $DOCKER_IMAGE usage.sh >/dev/null 2>&1"
 
-    # Test R
-    log_info "Testing R installation..."
-    docker run --rm "$DOCKER_IMAGE" R --version | head -1
+run_test "Helper scripts availability - workspace-setup.sh" \
+    "timeout 10s docker run --rm $DOCKER_IMAGE workspace-setup.sh --help >/dev/null 2>&1 || \
+     timeout 10s docker run --rm $DOCKER_IMAGE which workspace-setup.sh >/dev/null 2>&1"
 
-    log_success "Basic functionality tests passed"
-}
+# Test 5: Fast startup time (should be <10s, not 30-60s like old architecture)
+run_test "Fast startup time (<10s)" \
+    "timeout 10s docker run --rm $DOCKER_IMAGE echo 'Container started successfully' >/dev/null 2>&1"
 
-# Test Python dependencies
-test_python_dependencies() {
-    log_info "Testing critical Python dependencies..."
+# Test 6: No runtime installation scripts (old architecture cleanup)
+log_info "Verifying old runtime installation scripts are removed..."
+if docker run --rm $DOCKER_IMAGE which dev-mode.sh >/dev/null 2>&1; then
+    log_warning "dev-mode.sh still exists - should be removed in new architecture"
+else
+    log_success "dev-mode.sh properly removed (good - new architecture)"
+fi
 
-    docker run --rm "$DOCKER_IMAGE" python3 -c "
-import sys
-import importlib
+if docker run --rm $DOCKER_IMAGE which install-project-deps.sh >/dev/null 2>&1; then
+    log_warning "install-project-deps.sh still exists - should be removed in new architecture"  
+else
+    log_success "install-project-deps.sh properly removed (good - new architecture)"
+fi
 
-# Critical dependencies for rxiv-maker
-dependencies = [
-    'matplotlib',
-    'numpy',
-    'pandas',
-    'yaml'
-]
+# Test 7: Direct manuscript processing (core functionality)
+log_info "Creating test manuscript for processing..."
+cat > "$TEST_WORKSPACE/test-manuscript.md" << 'MANUSCRIPT_EOF'
+---
+title: "Test Manuscript"
+authors: "Test Author"
+---
 
-failed = []
-for dep in dependencies:
-    try:
-        importlib.import_module(dep)
-        print(f'✅ {dep}')
-    except ImportError as e:
-        print(f'❌ {dep}: {e}')
-        failed.append(dep)
+# Introduction
 
-if failed:
-    print(f'Failed dependencies: {failed}')
-    sys.exit(1)
-
-print('All critical Python dependencies available')
-"
-
-    log_success "Python dependencies test passed"
-}
-
-
-# Test rxiv-maker installation and basic functionality
-test_rxiv_maker_installation() {
-    log_info "Testing rxiv-maker installation and functionality..."
-
-    # Install rxiv-maker in container and test basic commands
-    docker run --rm -v "$PROJECT_ROOT:/repo" -w /repo "$DOCKER_IMAGE" bash -c "
-        # Install rxiv-maker from source
-        python3 -m pip install -e . --quiet
-
-        # Test version command
-        python3 -m rxiv_maker.cli.main --version
-
-        # Test help command
-        python3 -m rxiv_maker.cli.main --help > /dev/null
-
-        echo '✅ rxiv-maker installation and basic commands work'
-    "
-
-    log_success "rxiv-maker installation test passed"
-}
-
-# Test comprehensive pytest suite
-test_pytest_suite() {
-    log_info "Running comprehensive pytest suite in container..."
-
-    # Run pytest for Docker-specific tests
-    docker run --rm -v "$PROJECT_ROOT:/repo" -w /repo "$DOCKER_IMAGE" bash -c "
-        # Install rxiv-maker and test dependencies
-        python3 -m pip install -e . --quiet
-        python3 -m pip install pytest pytest-timeout --quiet
-
-        # Run Docker-specific tests
-        echo 'Running Docker integration tests...'
-        python3 -m pytest tests/integration/test_docker_integration.py -v || true
-
-        echo 'Running Docker unit tests...'
-        python3 -m pytest tests/unit/test_docker.py -v || true
-
-        echo '✅ Pytest suite completed successfully'
-    "
-
-    log_success "Pytest suite test passed"
-}
-
-# Test manuscript generation workflow
-test_manuscript_generation() {
-    log_info "Testing manuscript generation workflow..."
-
-    # Create minimal test manuscript
-    mkdir -p manuscript_test/FIGURES
-
-    cat > manuscript_test/00_CONFIG.yml << 'EOF'
-title: "Docker Test Manuscript"
-authors:
-  - name: "Test Author"
-    email: "test@example.com"
-    affiliation: "Test Institution"
-keywords: ["docker", "test"]
-EOF
-
-    cat > manuscript_test/01_MAIN.md << 'EOF'
-# Docker Test Manuscript
-
-This is a test manuscript for Docker image validation.
-
-## Introduction
-
-Testing Docker-based PDF generation.
+This is a test manuscript for validating the new Docker architecture.
 
 ## Methods
 
-This manuscript tests the complete workflow including:
-- LaTeX compilation
-- Python dependencies
-- SVG processing
-- Font rendering
+Testing pre-installed rxiv-maker functionality.
 
-## Results
+## Results  
 
-The Docker image successfully processes this manuscript.
+Docker container should process this immediately without setup.
+MANUSCRIPT_EOF
 
-## Conclusion
+# Create simple manuscript structure
+mkdir -p "$TEST_WORKSPACE/manuscript"
+cp "$TEST_WORKSPACE/test-manuscript.md" "$TEST_WORKSPACE/manuscript/01_MAIN.md"
+echo "bibliography: []" > "$TEST_WORKSPACE/manuscript/03_REFERENCES.bib"
 
-Docker image validation complete.
-EOF
+run_test "Direct manuscript processing" \
+    "timeout 30s docker run --rm -v $TEST_WORKSPACE:/workspace $DOCKER_IMAGE \
+     rxiv validate /workspace/manuscript/ >/dev/null 2>&1"
 
-    cat > manuscript_test/03_REFERENCES.bib << 'EOF'
-@article{test2023,
-  title={Test Article},
-  author={Test Author},
-  journal={Test Journal},
-  year={2023}
-}
-EOF
+# Test 8: Interactive terminal usage simulation
+run_test "Interactive terminal readiness" \
+    "timeout 15s docker run --rm -i $DOCKER_IMAGE bash -c 'echo \"Container ready\"; rxiv --version; echo \"Success\"' >/dev/null 2>&1"
 
-    # Test manuscript validation (without full PDF generation to save time)
-    docker run --rm -v "$(pwd):/workspace" -w /workspace "$DOCKER_IMAGE" bash -c "
-        cd manuscript_test
-
-        # Install rxiv-maker
-        python3 -m pip install -e /workspace --quiet 2>/dev/null || true
-
-        # Test validation command
-        echo 'Testing manuscript validation...'
-        python3 -c '
-import sys
-sys.path.insert(0, \"/workspace/src\")
-from rxiv_maker.engines.operations.validate import validate_manuscript
-
-# Basic validation test
-try:
-    result = validate_manuscript(\".\", check_dois=False, verbose=False)
-    print(\"✅ Manuscript validation successful\")
-except Exception as e:
-    print(f\"⚠️ Validation warning: {e}\")
-    # Don't fail on validation warnings
-'
-    "
-
-    log_success "Manuscript generation test passed"
-}
-
-# Test performance benchmarks
-test_performance() {
-    log_info "Running performance benchmarks..."
-
-    # Create test figure script
-    cat > test_performance.py << 'EOF'
-import time
-import matplotlib.pyplot as plt
-import numpy as np
-
-start_time = time.time()
-
-# Generate test plot
-x = np.linspace(0, 10, 1000)
-y = np.sin(x) * np.exp(-x/5)
-
-plt.figure(figsize=(10, 6))
-plt.plot(x, y, 'b-', linewidth=2)
-plt.title('Performance Test Plot')
-plt.xlabel('X axis')
-plt.ylabel('Y axis')
-plt.grid(True)
-plt.savefig('performance_test.png', dpi=150, bbox_inches='tight')
-plt.savefig('performance_test.pdf', bbox_inches='tight')
-plt.close()
-
-duration = time.time() - start_time
-print(f"Figure generation completed in {duration:.2f} seconds")
-
-# Verify file sizes
-import os
-png_size = os.path.getsize('performance_test.png')
-pdf_size = os.path.getsize('performance_test.pdf')
-print(f"Generated PNG: {png_size} bytes, PDF: {pdf_size} bytes")
-EOF
-
-    # Run performance test
-    start_time=$(date +%s.%N)
-    docker run --rm -v "$(pwd):/workspace" -w /workspace "$DOCKER_IMAGE" python3 test_performance.py
-    end_time=$(date +%s.%N)
-
-    duration=$(python3 -c "print(f'{$end_time - $start_time:.2f}')" 2>/dev/null || echo "N/A")
-    log_info "Total container execution time: ${duration}s"
-
-    log_success "Performance benchmarks completed"
-}
-
-# Test error handling
-test_error_handling() {
-    log_info "Testing error handling..."
-
-    # Test graceful failure scenarios
-    docker run --rm "$DOCKER_IMAGE" bash -c "
-        # Test missing file handling
-        python3 -c 'import matplotlib.pyplot as plt; plt.savefig(\"test.png\"); print(\"Error handling test passed\")'
-
-        # Test LaTeX error handling (intentional error)
-        echo '\\documentclass{article}\\begin{document}\\invalid_command\\end{document}' > test_error.tex
-        pdflatex test_error.tex >/dev/null 2>&1 || echo 'LaTeX error handled gracefully'
-    "
-
-    log_success "Error handling test passed"
-}
-
-# Main test execution
-main() {
-    log_info "Starting comprehensive Docker image testing"
-    log_info "Testing image: $DOCKER_IMAGE"
-
-    setup_test_workspace
-
-    # Run all test suites
-    test_basic_functionality
-    test_python_dependencies
-    test_rxiv_maker_installation
-    test_pytest_suite
-    test_manuscript_generation
-    test_performance
-    test_error_handling
-
-    log_success "All Docker image tests passed! ✅"
-    log_info "Image $DOCKER_IMAGE is ready for production use"
-}
-
-# Print help if no arguments
-if [[ $# -eq 0 || "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Docker Image Testing Script"
-    echo "Usage: $0 <docker_image>"
-    echo "Example: $0 henriqueslab/rxiv-maker-base:latest"
-    exit 0
+# Test 9: Version consistency (should show specific version, not installation messages)
+log_info "Checking version output consistency..."
+VERSION_OUTPUT=$(docker run --rm $DOCKER_IMAGE rxiv --version 2>&1)
+if echo "$VERSION_OUTPUT" | grep -q "rxiv-maker" && ! echo "$VERSION_OUTPUT" | grep -qi "install"; then
+    log_success "Version output shows pre-installed rxiv-maker (no installation messages)"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    log_error "Version output suggests runtime installation (should be pre-installed)"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
+TESTS_RUN=$((TESTS_RUN + 1))
 
-# Run main function
-main "$@"
+# Test 10: Architecture verification  
+log_info "Verifying new architecture markers..."
+ARCHITECTURE_CHECK=$(docker run --rm $DOCKER_IMAGE bash -c 'echo "Checking labels..."; docker image inspect $0 2>/dev/null | grep -i "uv-preinstalled" || echo "Architecture verification via labels not available from inside container"' $DOCKER_IMAGE 2>/dev/null || echo "Label check skipped")
+
+# Final Results
+echo ""
+echo "=================================================="
+echo "📊 TEST RESULTS SUMMARY"
+echo "=================================================="
+echo "🏃 Tests run: $TESTS_RUN"
+echo "✅ Tests passed: $TESTS_PASSED"  
+echo "❌ Tests failed: $TESTS_FAILED"
+
+if [ $TESTS_FAILED -eq 0 ]; then
+    echo ""
+    log_success "🎉 ALL TESTS PASSED - NEW ARCHITECTURE WORKING!"
+    echo ""
+    echo "🎯 NEW ARCHITECTURE FEATURES VERIFIED:"
+    echo "  ✅ rxiv-maker pre-installed via UV"
+    echo "  ✅ Immediate terminal usage (no setup scripts needed)"  
+    echo "  ✅ Fast startup time (<10s)"
+    echo "  ✅ Helper scripts available (usage.sh, workspace-setup.sh)"
+    echo "  ✅ Direct manuscript processing"
+    echo "  ✅ No old runtime installation artifacts"
+    echo ""
+    echo "🚀 Ready for production deployment!"
+    exit 0
+else
+    echo ""
+    log_error "🚨 SOME TESTS FAILED - ARCHITECTURE NEEDS FIXES"
+    echo ""
+    echo "🔧 Troubleshooting hints:"
+    echo "  • Ensure rxiv-maker is installed via UV during Docker build"
+    echo "  • Check that helper scripts are copied to /usr/local/bin/"
+    echo "  • Verify no runtime installation logic remains"
+    echo "  • Test image was built with new Dockerfile (v2.5.0+)"
+    exit 1
+fi

@@ -1,0 +1,32 @@
+# AI Assistant Instructions
+CLAUDE.md
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker build artifacts
+*.tar
+*.tar.gz
+build-*.log
+
+# Test outputs
+test-results/
+*.test.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
