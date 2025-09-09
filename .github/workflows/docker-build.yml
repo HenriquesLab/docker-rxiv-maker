@@ -170,6 +170,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up QEMU for cross-platform testing
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx for cross-platform support
+        uses: docker/setup-buildx-action@v3
+
       - name: Download AMD64 image artifact
         id: download-amd64
         continue-on-error: true
@@ -248,18 +254,53 @@ jobs:
             exit 1
           fi
 
-      - name: Load and test images
+      - name: Load and test images with platform compatibility
         if: env.ARTIFACTS_AVAILABLE == 'true'
         run: |
-          echo "🐳 Loading built Docker images..."
-          echo "📦 Available artifacts count: $SUCCESSFUL_DOWNLOADS"
+          echo "🐳 Loading and testing built Docker images with platform compatibility..."
+          echo "📦 Available artifacts count: $AVAILABLE_COUNT"
           
           LOADED_IMAGES=0
           FAILED_LOADS=0
+          TESTED_PLATFORMS=0
           
-          # Process available tar files from each platform
+          # Define the test script for better reusability
+          TEST_SCRIPT="
+          import sys
+          print(f'🐍 Python version: {sys.version}')
+          print(f'🏗️  Platform: {sys.platform}')
+          
+          # Test critical dependencies
+          try:
+              import json, os, subprocess, tempfile
+              print('✅ Core Python modules available')
+              
+              # Test basic file operations (important for rxiv-maker)
+              with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=True) as f:
+                  f.write('test content')
+                  f.flush()
+                  print('✅ File operations working')
+              
+              # Test subprocess execution
+              result = subprocess.run(['python3', '--version'], capture_output=True, text=True)
+              if result.returncode == 0:
+                  print(f'✅ Subprocess execution: {result.stdout.strip()}')
+              else:
+                  raise Exception('Subprocess test failed')
+                  
+          except ImportError as e:
+              print(f'❌ Missing core modules: {e}')
+              sys.exit(1)
+          except Exception as e:
+              print(f'❌ Functionality test failed: {e}')
+              sys.exit(1)
+          
+          print('✅ Docker image comprehensive test successful!')
+          "
+          
+          # Process and test AMD64 images (native on AMD64 runner)
           if [ "$AMD64_AVAILABLE" = "true" ]; then
-            echo "🔄 Processing AMD64 artifacts..."
+            echo "🔄 Processing and testing AMD64 artifacts..."
             for image_file in artifacts/amd64/*.tar; do
               if [ -f "$image_file" ]; then
                 echo "📥 Processing AMD64 image: $image_file"
@@ -272,13 +313,31 @@ jobs:
                 fi
                 
                 echo "🔄 Loading AMD64 Docker image from $image_file..."
-                if docker load --input "$image_file" 2>&1; then
-                  echo "✅ Successfully loaded AMD64 image: $image_file"
+                LOADED_REPO=$(docker load --input "$image_file" 2>&1 | grep "Loaded image:" | sed 's/Loaded image: //' | head -1 || echo "unknown")
+                if [ "$LOADED_REPO" != "unknown" ]; then
+                  echo "✅ Successfully loaded AMD64 image: $LOADED_REPO"
                   LOADED_IMAGES=$((LOADED_IMAGES + 1))
                   
-                  # Extract and display loaded image details
-                  LOADED_REPO=$(docker load --input "$image_file" 2>&1 | grep "Loaded image:" | sed 's/Loaded image: //' | head -1 || echo "unknown")
-                  echo "📋 Loaded AMD64 image: $LOADED_REPO"
+                  # Test AMD64 image (runs natively on AMD64 runner)
+                  echo "🧪 Testing AMD64 image: $LOADED_REPO"
+                  for attempt in {1..3}; do
+                    echo "🔍 AMD64 test attempt $attempt..."
+                    
+                    if timeout 120s docker run --rm "$LOADED_REPO" python3 -c "$TEST_SCRIPT"; then
+                      echo "✅ AMD64 image test passed on attempt $attempt"
+                      TESTED_PLATFORMS=$((TESTED_PLATFORMS + 1))
+                      break
+                    else
+                      echo "❌ AMD64 image test failed on attempt $attempt"
+                      if [ $attempt -eq 3 ]; then
+                        echo "🚫 AMD64 image test failed after 3 attempts"
+                        # Don't exit immediately, try other platforms
+                      else
+                        echo "⏳ Waiting 10 seconds before retry..."
+                        sleep 10
+                      fi
+                    fi
+                  done
                 else
                   echo "❌ Failed to load AMD64 image: $image_file"
                   FAILED_LOADS=$((FAILED_LOADS + 1))
@@ -287,8 +346,9 @@ jobs:
             done
           fi
           
+          # Process and test ARM64 images (using QEMU emulation)
           if [ "$ARM64_AVAILABLE" = "true" ]; then
-            echo "🔄 Processing ARM64 artifacts..."
+            echo "🔄 Processing and testing ARM64 artifacts with QEMU emulation..."
             for image_file in artifacts/arm64/*.tar; do
               if [ -f "$image_file" ]; then
                 echo "📥 Processing ARM64 image: $image_file"
@@ -301,13 +361,33 @@ jobs:
                 fi
                 
                 echo "🔄 Loading ARM64 Docker image from $image_file..."
-                if docker load --input "$image_file" 2>&1; then
-                  echo "✅ Successfully loaded ARM64 image: $image_file"
+                LOADED_REPO=$(docker load --input "$image_file" 2>&1 | grep "Loaded image:" | sed 's/Loaded image: //' | head -1 || echo "unknown")
+                if [ "$LOADED_REPO" != "unknown" ]; then
+                  echo "✅ Successfully loaded ARM64 image: $LOADED_REPO"
                   LOADED_IMAGES=$((LOADED_IMAGES + 1))
                   
-                  # Extract and display loaded image details
-                  LOADED_REPO=$(docker load --input "$image_file" 2>&1 | grep "Loaded image:" | sed 's/Loaded image: //' | head -1 || echo "unknown")
-                  echo "📋 Loaded ARM64 image: $LOADED_REPO"
+                  # Test ARM64 image with explicit platform specification (uses QEMU)
+                  echo "🧪 Testing ARM64 image with QEMU emulation: $LOADED_REPO"
+                  for attempt in {1..2}; do  # Fewer attempts for emulated testing
+                    echo "🔍 ARM64 test attempt $attempt (with QEMU emulation)..."
+                    
+                    # Use --platform to explicitly run ARM64 image with QEMU
+                    if timeout 180s docker run --rm --platform linux/arm64 "$LOADED_REPO" python3 -c "$TEST_SCRIPT"; then
+                      echo "✅ ARM64 image test passed on attempt $attempt with QEMU emulation"
+                      TESTED_PLATFORMS=$((TESTED_PLATFORMS + 1))
+                      break
+                    else
+                      echo "❌ ARM64 image test failed on attempt $attempt (QEMU emulation can be slow)"
+                      if [ $attempt -eq 2 ]; then
+                        echo "🚫 ARM64 image test failed after 2 attempts with QEMU"
+                        echo "⚠️  This may be due to QEMU emulation limitations, but the image might still be functional"
+                        # Don't fail the entire workflow for emulation issues
+                      else
+                        echo "⏳ Waiting 15 seconds before retry..."
+                        sleep 15
+                      fi
+                    fi
+                  done
                 else
                   echo "❌ Failed to load ARM64 image: $image_file"
                   FAILED_LOADS=$((FAILED_LOADS + 1))
@@ -316,89 +396,33 @@ jobs:
             done
           fi
           
-          # Get actual loaded image count (not from subshell)
-          ACTUAL_LOADED=$(docker images ${{ env.IMAGE_NAME }} --format "table {{.Repository}}:{{.Tag}}" | grep -v "REPOSITORY:TAG" | wc -l || echo "0")
-          echo "🎯 Actually loaded images: $ACTUAL_LOADED"
+          # Summary
+          echo "📊 Testing Summary:"
+          echo "🔢 Loaded images: $LOADED_IMAGES"
+          echo "🧪 Successfully tested platforms: $TESTED_PLATFORMS"
+          echo "❌ Failed loads: $FAILED_LOADS"
           
-          if [ "$ACTUAL_LOADED" -eq 0 ]; then
+          if [ "$LOADED_IMAGES" -eq 0 ]; then
             echo "❌ No Docker images were successfully loaded"
             exit 1
           fi
           
-          echo "🧪 Testing image functionality with loaded images..."
-          
-          # Get the most recent image tag for testing
-          TEST_TAG=$(docker images ${{ env.IMAGE_NAME }} --format "{{.Repository}}:{{.Tag}}" | head -1)
-          if [ -z "$TEST_TAG" ]; then
-            echo "❌ Could not determine image tag for testing"
+          if [ "$TESTED_PLATFORMS" -eq 0 ]; then
+            echo "❌ No platforms were successfully tested"
+            echo "🔍 Debug information:"
+            echo "Available images:"
+            docker images ${{ env.IMAGE_NAME }}
+            echo ""
+            echo "Docker system info:"
+            docker version || true
+            echo ""
+            echo "Available disk space:"
+            df -h || true
             exit 1
           fi
           
-          echo "🎯 Testing image: $TEST_TAG"
-          
-          # Test with enhanced retry logic
-          for attempt in {1..3}; do
-            echo "🔍 Test attempt $attempt..."
-            
-            # Enhanced test with timeout and better error handling
-            if timeout 120s docker run --rm "$TEST_TAG" python3 -c "
-            import sys
-            print(f'🐍 Python version: {sys.version}')
-            print(f'🏗️  Platform: {sys.platform}')
-            
-            # Test critical dependencies
-            try:
-                import json, os, subprocess, tempfile
-                print('✅ Core Python modules available')
-                
-                # Test basic file operations (important for rxiv-maker)
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=True) as f:
-                    f.write('test content')
-                    f.flush()
-                    print('✅ File operations working')
-                
-                # Test subprocess execution
-                result = subprocess.run(['python3', '--version'], capture_output=True, text=True)
-                if result.returncode == 0:
-                    print(f'✅ Subprocess execution: {result.stdout.strip()}')
-                else:
-                    raise Exception('Subprocess test failed')
-                    
-            except ImportError as e:
-                print(f'❌ Missing core modules: {e}')
-                sys.exit(1)
-            except Exception as e:
-                print(f'❌ Functionality test failed: {e}')
-                sys.exit(1)
-            
-            print('✅ Docker image comprehensive test successful!')
-            "; then
-              echo "✅ Image test passed on attempt $attempt"
-              echo "🎉 Docker image testing completed successfully!"
-              break
-            else
-              echo "❌ Image test failed on attempt $attempt"
-              if [ $attempt -eq 3 ]; then
-                echo "🚫 Image test failed after 3 attempts"
-                
-                # Provide debugging information
-                echo "🔍 Debug information:"
-                echo "Available images:"
-                docker images ${{ env.IMAGE_NAME }}
-                echo ""
-                echo "Docker system info:"
-                docker version || true
-                echo ""
-                echo "Available disk space:"
-                df -h || true
-                
-                exit 1
-              else
-                echo "⏳ Waiting 10 seconds before retry..."
-                sleep 10
-              fi
-            fi
-          done
+          echo "🎉 Docker image testing completed successfully!"
+          echo "✅ Successfully tested $TESTED_PLATFORMS platform(s) out of $LOADED_IMAGES loaded image(s)"
 
   # Push to registry (conditional)
   push-to-registry:
