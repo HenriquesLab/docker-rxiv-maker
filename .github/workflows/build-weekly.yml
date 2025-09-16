@@ -143,7 +143,7 @@ jobs:
           echo "🧪 Testing weekly image functionality..."
           
           # Enhanced testing for weekly builds
-          docker run --rm --timeout=90s ${{ env.IMAGE_NAME }}:weekly python3 -c "
+          timeout 90s docker run --rm ${{ env.IMAGE_NAME }}:weekly python3 -c "
           import sys, subprocess, pkg_resources
           print(f'🐍 Python version: {sys.version}')
           
@@ -250,7 +250,7 @@ jobs:
             echo "✅ Weekly image pulled successfully"
             
             # Quick functionality test
-            if docker run --rm --timeout=60s ${{ env.IMAGE_NAME }}:weekly python3 --version; then
+            if timeout 60s docker run --rm ${{ env.IMAGE_NAME }}:weekly python3 --version; then
               echo "✅ Weekly image verification successful"
             else
               echo "❌ Weekly image functionality test failed"

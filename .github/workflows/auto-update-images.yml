@@ -269,7 +269,7 @@ jobs:
             for attempt in {1..3}; do
               echo "  Attempt $attempt..."
               
-              if docker pull "$tag" && docker run --rm --timeout=30s "$tag" python3 -c "
+              if docker pull "$tag" && timeout 30s docker run --rm "$tag" python3 -c "
                 import rxiv_maker
                 print(f'✅ {tag}: rxiv-maker v{rxiv_maker.__version__} verified')
               "; then

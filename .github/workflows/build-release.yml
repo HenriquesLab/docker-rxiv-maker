@@ -191,7 +191,7 @@ jobs:
           RELEASE_TAG="${{ needs.validate-release.outputs.release_tag }}"
           
           # Comprehensive release testing
-          docker run --rm --timeout=180s ${{ env.IMAGE_NAME }}:${RELEASE_TAG} bash -c "
+          timeout 180s docker run --rm ${{ env.IMAGE_NAME }}:${RELEASE_TAG} bash -c "
           set -e
           
           echo '🔍 Release Image Information:'
@@ -333,7 +333,7 @@ jobs:
             echo "✅ Release tag pulled successfully"
             
             # Verify functionality
-            if docker run --rm --timeout=90s ${{ env.IMAGE_NAME }}:${RELEASE_TAG} python3 -c "
+            if timeout 90s docker run --rm ${{ env.IMAGE_NAME }}:${RELEASE_TAG} python3 -c "
             import sys
             print(f'✅ Release image verification: Python {sys.version.split()[0]}')
             "; then

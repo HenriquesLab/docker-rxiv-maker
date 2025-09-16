@@ -215,7 +215,7 @@ jobs:
           CUSTOM_TAG="${{ needs.validate-inputs.outputs.custom_tag }}"
           
           # Comprehensive test suite
-          docker run --rm --timeout=120s ${{ env.IMAGE_NAME }}:${CUSTOM_TAG} bash -c "
+          timeout 120s docker run --rm ${{ env.IMAGE_NAME }}:${CUSTOM_TAG} bash -c "
           set -e
           echo '🐍 Testing Python environment...'
           python3 -c '
@@ -313,7 +313,7 @@ jobs:
             echo "✅ Custom tag image pulled successfully"
             
             # Quick verification
-            if docker run --rm --timeout=60s ${{ env.IMAGE_NAME }}:${CUSTOM_TAG} python3 -c "
+            if timeout 60s docker run --rm ${{ env.IMAGE_NAME }}:${CUSTOM_TAG} python3 -c "
             import sys
             print(f'✅ Image verification successful: Python {sys.version}')
             "; then
