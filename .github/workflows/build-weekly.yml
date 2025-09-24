@@ -147,7 +147,7 @@ jobs:
           echo "🧪 Testing weekly image functionality..."
 
           # Enhanced testing for weekly builds
-          timeout 90s docker run --rm "$LOADED_IMAGE_TAG" python3 -c "
+          timeout 90s docker run --rm --platform linux/amd64 "$LOADED_IMAGE_TAG" python3 -c "
           import sys, subprocess, pkg_resources
           print(f'🐍 Python version: {sys.version}')
           

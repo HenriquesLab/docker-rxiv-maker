@@ -216,7 +216,7 @@ jobs:
           echo "🧪 Testing on-demand image functionality..."
 
           # Comprehensive test suite
-          timeout 120s docker run --rm "$LOADED_IMAGE_TAG" bash -c "
+          timeout 120s docker run --rm --platform linux/amd64 "$LOADED_IMAGE_TAG" bash -c "
           set -e
           echo '🐍 Testing Python environment...'
           python3 -c '

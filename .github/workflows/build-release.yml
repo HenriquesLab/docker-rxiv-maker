@@ -195,7 +195,7 @@ jobs:
           echo "🧪 Testing release image functionality..."
 
           # Comprehensive release testing
-          timeout 180s docker run --rm "$LOADED_IMAGE_TAG" bash -c "
+          timeout 180s docker run --rm --platform linux/amd64 "$LOADED_IMAGE_TAG" bash -c "
           set -e
           
           echo '🔍 Release Image Information:'
