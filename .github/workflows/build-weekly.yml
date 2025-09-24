@@ -133,17 +133,21 @@ jobs:
       - name: Load and test images
         run: |
           echo "📥 Loading weekly build images..."
-          
+
           # Load all platform images
           find artifacts -name "*.tar" -type f | while read image_file; do
             echo "Loading: $image_file"
             docker load --input "$image_file"
           done
 
+          # Get the first loaded image tag for testing
+          LOADED_IMAGE_TAG=$(docker images ${{ env.IMAGE_NAME }} --format "{{.Repository}}:{{.Tag}}" | head -1)
+          echo "📋 Using loaded image for tests: $LOADED_IMAGE_TAG"
+
           echo "🧪 Testing weekly image functionality..."
-          
+
           # Enhanced testing for weekly builds
-          timeout 90s docker run --rm ${{ env.IMAGE_NAME }}:weekly python3 -c "
+          timeout 90s docker run --rm "$LOADED_IMAGE_TAG" python3 -c "
           import sys, subprocess, pkg_resources
           print(f'🐍 Python version: {sys.version}')
           

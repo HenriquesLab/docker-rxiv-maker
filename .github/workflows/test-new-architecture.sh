@@ -1,6 +1,6 @@
 #!/bin/bash
 # ======================================================================
-# NEW ARCHITECTURE TEST SUITE for GitHub Actions  
+# NEW ARCHITECTURE TEST SUITE for GitHub Actions
 # ======================================================================
 # Tests the NEW pre-installed terminal-focused architecture (v2.5.0+)
 # This script is designed to be used within GitHub Actions workflows
@@ -19,12 +19,27 @@ echo "🖼️ Image: $IMAGE_NAME"
 echo "📊 Testing: Pre-installed terminal-focused architecture"
 echo ""
 
+# Verify image exists locally (should already be loaded in workflow)
+echo "🔍 Verifying image is available locally..."
+if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+  echo "❌ CRITICAL: Image $IMAGE_NAME not found locally"
+  echo "Available images:"
+  docker images
+  exit 1
+fi
+echo "✅ Image found locally"
+echo ""
+
 # Test 1: Pre-installed rxiv-maker availability (CRITICAL)
 echo "🎯 Test 1: Pre-installed rxiv-maker availability"
-if timeout 30s docker run --rm "$IMAGE_NAME" rxiv --version | grep -q "rxiv-maker"; then
+if timeout 30s docker run --rm "$IMAGE_NAME" rxiv --version 2>&1 | grep -q "rxiv-maker"; then
   echo "✅ rxiv-maker pre-installed and immediately available"
 else
   echo "❌ CRITICAL: rxiv-maker not pre-installed (new architecture requirement FAILED)"
+  echo "Checking if rxiv command exists..."
+  docker run --rm "$IMAGE_NAME" which rxiv || echo "rxiv command not found"
+  echo "Checking Python packages..."
+  docker run --rm "$IMAGE_NAME" python3 -m pip list | grep rxiv || echo "rxiv-maker not in pip list"
   exit 1
 fi
 

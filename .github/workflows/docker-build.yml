@@ -401,12 +401,12 @@ jobs:
           echo "🔢 Loaded images: $LOADED_IMAGES"
           echo "🧪 Successfully tested platforms: $TESTED_PLATFORMS"
           echo "❌ Failed loads: $FAILED_LOADS"
-          
+
           if [ "$LOADED_IMAGES" -eq 0 ]; then
             echo "❌ No Docker images were successfully loaded"
             exit 1
           fi
-          
+
           if [ "$TESTED_PLATFORMS" -eq 0 ]; then
             echo "❌ No platforms were successfully tested"
             echo "🔍 Debug information:"
@@ -420,12 +420,15 @@ jobs:
             df -h || true
             exit 1
           fi
-          
+
+          # Get the first loaded image tag for architecture testing
+          LOADED_IMAGE_TAG=$(docker images ${{ env.IMAGE_NAME }} --format "{{.Repository}}:{{.Tag}}" | head -1)
+          echo "📋 Using loaded image for architecture tests: $LOADED_IMAGE_TAG"
 
           echo ""
           echo "🆕 RUNNING NEW ARCHITECTURE TEST SUITE (v2.5.0+)"
           echo "================================================"
-          ./.github/workflows/test-new-architecture.sh henriqueslab/rxiv-maker-base:dev-${{ github.sha }}
+          ./.github/workflows/test-new-architecture.sh "$LOADED_IMAGE_TAG"
           echo ""
           echo "🎉 Docker image testing completed successfully!"
           echo "✅ Successfully tested $TESTED_PLATFORMS platform(s) out of $LOADED_IMAGES loaded image(s)"

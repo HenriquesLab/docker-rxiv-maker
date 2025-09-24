@@ -254,8 +254,9 @@ RUN echo "[INFO] Verifying rxiv-maker installation..." && \
     echo "✅ Rxiv-maker ready for terminal usage"
 
 # Copy terminal-focused helper scripts (NEW POLICY)
-COPY ../../scripts/workspace-setup.sh /usr/local/bin/workspace-setup.sh
-COPY ../../scripts/usage.sh /usr/local/bin/usage.sh
+# Note: Build context is repository root, so paths are relative to root
+COPY scripts/workspace-setup.sh /usr/local/bin/workspace-setup.sh
+COPY scripts/usage.sh /usr/local/bin/usage.sh
 RUN chmod +x /usr/local/bin/workspace-setup.sh /usr/local/bin/usage.sh
 
 # Note: siunitx package is included via texlive-science package
@@ -267,10 +268,12 @@ RUN /usr/local/bin/verify-python-deps.sh
 LABEL maintainer="Rxiv-Maker Project"
 LABEL description="Ubuntu-based Docker Image with Pre-installed Rxiv-Maker via UV - Ready for Terminal Usage"
 LABEL version="2.5.0-uv-preinstalled"
-LABEL org.opencontainers.image.source="https://github.com/henriqueslab/rxiv-maker"
-LABEL org.opencontainers.image.description="Ubuntu-based image with rxiv-maker from APT repository and UV upgrade capability"
+LABEL org.opencontainers.image.source="https://github.com/henriqueslab/docker-rxiv-maker"
+LABEL org.opencontainers.image.description="Ubuntu-based image with rxiv-maker pre-installed via UV for direct terminal usage"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.variant="uv-preinstalled"
+LABEL org.opencontainers.image.title="Rxiv-Maker Base Image"
+LABEL org.opencontainers.image.vendor="HenriquesLab"
 
 # For GitHub Actions, we need to stay as root to allow workspace access
 # USER rxivmaker

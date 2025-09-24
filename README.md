@@ -172,6 +172,13 @@ cd images/base
 
 ---
 
-**Architecture Version**: v2.5.0-uv-preinstalled  
-**Last Updated**: September 2025  
+**Architecture Version**: v2.5.0-uv-preinstalled
+**Last Updated**: September 24, 2025
+**Status**: ✅ All workflows operational after critical fixes
 **Breaking Change**: Yes - migrated from runtime injection to pre-installation
+
+### Recent Updates (Sept 24, 2025)
+- ✅ **Fixed all GitHub Actions workflows** - resolved critical image tag mismatch
+- ✅ **Corrected Dockerfile paths** - fixed build context issues
+- ✅ **Updated test architecture** - proper local image verification
+- ✅ **Streamlined across all workflows** - weekly, release, on-demand builds now working
