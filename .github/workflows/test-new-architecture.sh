@@ -32,7 +32,7 @@ echo ""
 
 # Test 1: Pre-installed rxiv-maker availability (CRITICAL)
 echo "🎯 Test 1: Pre-installed rxiv-maker availability"
-if timeout 30s docker run --rm "$IMAGE_NAME" rxiv --version 2>&1 | grep -q "rxiv-maker"; then
+if timeout 30s docker run --rm "$IMAGE_NAME" sh -c "rxiv --version && which rxiv" >/dev/null 2>&1; then
   echo "✅ rxiv-maker pre-installed and immediately available"
 else
   echo "❌ CRITICAL: rxiv-maker not pre-installed (new architecture requirement FAILED)"
