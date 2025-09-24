@@ -1,6 +1,18 @@
 # AI Assistant Instructions
 CLAUDE.md
 
+# Audit and deployment documentation (local only)
+AUDIT_SUMMARY.md
+DEPLOYMENT_CHECKLIST.md
+DEPLOYMENT_SUMMARY.md
+OPTIMIZATION_ROADMAP.md
+
+# Ignore all markdown files by default, except those explicitly tracked
+*.md
+# But allow specific markdown files (use git add -f if needed)
+!README.md
+!docs/**/*.md
+
 # OS generated files
 .DS_Store
 .DS_Store?
