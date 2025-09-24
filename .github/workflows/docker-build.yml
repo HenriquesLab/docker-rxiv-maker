@@ -316,6 +316,9 @@ jobs:
                 LOADED_REPO=$(docker load --input "$image_file" 2>&1 | grep "Loaded image:" | sed 's/Loaded image: //' | head -1 || echo "unknown")
                 if [ "$LOADED_REPO" != "unknown" ]; then
                   echo "✅ Successfully loaded AMD64 image: $LOADED_REPO"
+                  # Save AMD64 image ID for later architecture testing (before ARM64 overwrites the tag)
+                  AMD64_IMAGE_ID=$(docker images "$LOADED_REPO" --format "{{.ID}}" | head -1)
+                  echo "📝 Saved AMD64 image ID: $AMD64_IMAGE_ID"
                   LOADED_IMAGES=$((LOADED_IMAGES + 1))
                   
                   # Test AMD64 image (runs natively on AMD64 runner)
@@ -421,9 +424,15 @@ jobs:
             exit 1
           fi
 
-          # Get the first loaded image tag for architecture testing
-          LOADED_IMAGE_TAG=$(docker images ${{ env.IMAGE_NAME }} --format "{{.Repository}}:{{.Tag}}" | head -1)
-          echo "📋 Using loaded image for architecture tests: $LOADED_IMAGE_TAG"
+          # Use the AMD64 image ID for architecture testing (works reliably even after ARM64 is loaded)
+          if [ -n "$AMD64_IMAGE_ID" ]; then
+            LOADED_IMAGE_TAG="$AMD64_IMAGE_ID"
+            echo "📋 Using AMD64 image ID for architecture tests: $LOADED_IMAGE_TAG"
+          else
+            # Fallback to tag-based approach if AMD64_IMAGE_ID is not set
+            LOADED_IMAGE_TAG=$(docker images ${{ env.IMAGE_NAME }} --format "{{.Repository}}:{{.Tag}}" | head -1)
+            echo "📋 Using loaded image tag for architecture tests: $LOADED_IMAGE_TAG"
+          fi
 
           echo ""
           echo "🆕 RUNNING NEW ARCHITECTURE TEST SUITE (v2.5.0+)"
