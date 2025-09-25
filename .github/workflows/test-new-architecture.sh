@@ -32,46 +32,68 @@ echo ""
 
 # Test 1: Pre-installed rxiv-maker availability (CRITICAL)
 echo "🎯 Test 1: Pre-installed rxiv-maker availability"
-if timeout 30s docker run --rm "$IMAGE_NAME" sh -c "rxiv --version && which rxiv" >/dev/null 2>&1; then
+# Detect if we're running under QEMU emulation (ARM64 on AMD64)
+PLATFORM_TIMEOUT=30s
+if docker run --rm "$IMAGE_NAME" uname -m | grep -q aarch64; then
+  echo "🔧 ARM64 platform detected - extending timeout for QEMU emulation"
+  PLATFORM_TIMEOUT=60s
+fi
+
+if timeout $PLATFORM_TIMEOUT docker run --rm "$IMAGE_NAME" sh -c "rxiv --version && which rxiv" >/dev/null 2>&1; then
   echo "✅ rxiv-maker pre-installed and immediately available"
 else
   echo "❌ CRITICAL: rxiv-maker not pre-installed (new architecture requirement FAILED)"
   echo "Checking if rxiv command exists..."
-  docker run --rm "$IMAGE_NAME" which rxiv || echo "rxiv command not found"
+  timeout $PLATFORM_TIMEOUT docker run --rm "$IMAGE_NAME" which rxiv || echo "rxiv command not found"
   echo "Checking Python packages..."
-  docker run --rm "$IMAGE_NAME" python3 -m pip list | grep rxiv || echo "rxiv-maker not in pip list"
+  timeout $PLATFORM_TIMEOUT docker run --rm "$IMAGE_NAME" python3 -m pip list | grep rxiv || echo "rxiv-maker not in pip list"
   exit 1
 fi
 
 # Test 2: Helper scripts availability (new architecture feature)
 echo "🎯 Test 2: Terminal-focused helper scripts availability"
-if timeout 20s docker run --rm "$IMAGE_NAME" usage.sh | grep -q -i "terminal\|pre-installed"; then
+SCRIPT_TIMEOUT=20s
+if docker run --rm "$IMAGE_NAME" uname -m | grep -q aarch64; then
+  SCRIPT_TIMEOUT=45s
+fi
+
+if timeout $SCRIPT_TIMEOUT docker run --rm "$IMAGE_NAME" usage.sh | grep -q -i "terminal\|pre-installed"; then
   echo "✅ usage.sh available and updated for new architecture"
 else
   echo "❌ usage.sh not available or not updated for new architecture"
   exit 1
 fi
 
-if timeout 20s docker run --rm "$IMAGE_NAME" which workspace-setup.sh >/dev/null 2>&1; then
+if timeout $SCRIPT_TIMEOUT docker run --rm "$IMAGE_NAME" which workspace-setup.sh >/dev/null 2>&1; then
   echo "✅ workspace-setup.sh available in container"
 else
   echo "❌ workspace-setup.sh not available in container"
   exit 1
 fi
 
-# Test 3: Fast startup verification (should be <10s, not 30-60s like old architecture)
-echo "🎯 Test 3: Fast startup time verification"
+# Test 3: Startup time verification (adjusted for platform)
+echo "🎯 Test 3: Startup time verification"
 START_TIME=$(date +%s)
-if timeout 15s docker run --rm "$IMAGE_NAME" echo "Container started" >/dev/null 2>&1; then
+STARTUP_TIMEOUT=15s
+EXPECTED_MAX=10
+
+# Adjust expectations for ARM64 QEMU emulation
+if docker run --rm "$IMAGE_NAME" uname -m | grep -q aarch64; then
+  echo "🔧 ARM64 emulation detected - adjusting startup expectations"
+  STARTUP_TIMEOUT=30s
+  EXPECTED_MAX=25
+fi
+
+if timeout $STARTUP_TIMEOUT docker run --rm "$IMAGE_NAME" echo "Container started" >/dev/null 2>&1; then
   END_TIME=$(date +%s)
   STARTUP_TIME=$((END_TIME - START_TIME))
-  if [ $STARTUP_TIME -lt 10 ]; then
-    echo "✅ Fast startup verified: ${STARTUP_TIME}s (new architecture benefit)"
+  if [ $STARTUP_TIME -lt $EXPECTED_MAX ]; then
+    echo "✅ Good startup time: ${STARTUP_TIME}s (under ${EXPECTED_MAX}s limit)"
   else
-    echo "⚠️ Slower startup: ${STARTUP_TIME}s (expected <10s for new architecture)"
+    echo "⚠️ Slower startup: ${STARTUP_TIME}s (expected <${EXPECTED_MAX}s for this platform)"
   fi
 else
-  echo "❌ Container startup failed or timed out"
+  echo "❌ Container startup failed or timed out after $STARTUP_TIMEOUT"
   exit 1
 fi
 
@@ -91,7 +113,12 @@ fi
 
 # Test 5: Direct manuscript processing capability (core new architecture feature)
 echo "🎯 Test 5: Direct manuscript processing capability"
-if timeout 30s docker run --rm "$IMAGE_NAME" bash -c "
+EXEC_TIMEOUT=30s
+if docker run --rm "$IMAGE_NAME" uname -m | grep -q aarch64; then
+  EXEC_TIMEOUT=60s
+fi
+
+if timeout $EXEC_TIMEOUT docker run --rm "$IMAGE_NAME" bash -c "
   echo 'Testing direct rxiv command execution...'
   rxiv --help >/dev/null 2>&1 && echo 'Direct rxiv execution: SUCCESS'
 " | grep -q "SUCCESS"; then
@@ -104,7 +131,12 @@ fi
 # Test 6: No runtime dependency installation (architecture verification)
 echo "🎯 Test 6: No runtime dependency installation verification"
 # Check that we don't have any runtime installation logic
-CONTAINER_OUTPUT=$(timeout 20s docker run --rm "$IMAGE_NAME" bash -c "
+VERIFICATION_TIMEOUT=20s
+if docker run --rm "$IMAGE_NAME" uname -m | grep -q aarch64; then
+  VERIFICATION_TIMEOUT=45s
+fi
+
+CONTAINER_OUTPUT=$(timeout $VERIFICATION_TIMEOUT docker run --rm "$IMAGE_NAME" bash -c "
 echo 'Container ready immediately'
 rxiv --version
 echo 'No installation steps required'
