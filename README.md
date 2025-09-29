@@ -21,7 +21,7 @@ docker run --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest rxiv pd
 cd images/base && ./build.sh --local
 
 # Build and push to registry
-cd images/base && ./build.sh --tag v1.0.0
+cd images/base && ./build.sh --tag v1.8.1
 
 # Test existing image
 ./test-docker-image.sh henriqueslab/rxiv-maker-base:latest
@@ -52,39 +52,10 @@ docker-rxiv-maker/
 │   └── Makefile                   # Build automation
 ├── scripts/                       # Helper scripts (in container)
 ├── test-docker-image.sh           # Comprehensive test suite
-└── docs/                          # Documentation
+├── tests/                         # Test files
+└── LICENSE                        # MIT License
 ```
 
-## Quick Start
-
-### Interactive Terminal
-
-```bash
-# Start container with your manuscript
-docker run -it --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest
-
-# Inside container - rxiv-maker is already installed
-rxiv pdf ./my-manuscript/
-rxiv validate ./my-manuscript/
-rxiv --help
-```
-
-### Direct Command Execution
-
-```bash
-# Generate PDF
-docker run --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest rxiv pdf .
-
-# Validate manuscript
-docker run --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest rxiv validate .
-```
-
-### Helper Scripts
-
-Available inside container:
-- `workspace-setup.sh` - Interactive workspace setup
-- `usage.sh` - Usage instructions
-- `rxiv --version` - Check version
 
 ## Migration from v2.4.x
 
@@ -117,15 +88,15 @@ cd images/base && ./build.sh --tag latest
 ### **CI/CD Workflow**
 
 Single unified workflow handles all scenarios:
-- **Push to main/dev**: Builds and pushes latest
-- **Weekly schedule**: Builds with latest dependencies
-- **Releases**: Builds versioned images
-- **Manual dispatch**: Flexible build options
+- **Push to main**: Builds and pushes `dev` tag with repository source
+- **Weekly schedule**: Builds `latest` + `weekly` tags with PyPI source
+- **Releases**: Builds `latest` + version tags with PyPI source
+- **Manual dispatch**: Flexible build options with source selection
 
 ## 📦 **Image Details**
 
 - **Repository**: `henriqueslab/rxiv-maker-base`
-- **Tags**: `latest`, `dev`, `weekly`, version tags (e.g., `v1.6.1`)
+- **Tags**: `latest`, `dev`, `weekly`, version tags (e.g., `v1.8.1`)
 - **Platforms**: AMD64, ARM64
 - **Size**: ~2GB (optimized)
 - **Contents**:
@@ -142,7 +113,7 @@ Single unified workflow handles all scenarios:
 | **`latest`** | 🔗 **PyPI releases** | ✅ **Production** | On GitHub releases |
 | **`dev`** | 📦 **GitHub repository** | ⚠️ **Development** | On main branch pushes |
 | **`weekly`** | 🔗 **PyPI releases** | 🔄 **Fresh packages** | Every Monday 2AM UTC |
-| **`v1.2.3`** | 🔗 **PyPI releases** | 📌 **Pinned version** | Manual releases |
+| **`v1.8.1`** | 🔗 **PyPI releases** | 📌 **Pinned version** | Manual releases |
 
 ### 📋 **Recommended Usage**
 
@@ -157,7 +128,7 @@ docker run henriqueslab/rxiv-maker-base:dev
 docker run henriqueslab/rxiv-maker-base:weekly
 
 # Specific version (reproducible builds)
-docker run henriqueslab/rxiv-maker-base:v1.6.1
+docker run henriqueslab/rxiv-maker-base:v1.8.1
 ```
 
 ## 🔧 **Troubleshooting**
@@ -199,6 +170,19 @@ cd images/base && make help
 - Local builds: ~5-10 minutes (single platform)
 - Multi-platform builds: ~30 minutes (Docker Hub push)
 - Container startup: ~3 seconds (pre-installed rxiv-maker)
+
+---
+
+### 🔧 **Helper Scripts**
+
+Available inside container:
+- `workspace-setup.sh` - Interactive workspace setup
+- `usage.sh` - Usage instructions
+- `rxiv --version` - Check version
+
+### 📄 **License**
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
