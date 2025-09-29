@@ -22,6 +22,9 @@ on:
   release:
     types: [published]
 
+  repository_dispatch:
+    types: [version-update]
+
   workflow_dispatch:
     inputs:
       push_to_registry:
@@ -89,6 +92,9 @@ jobs:
           elif [[ "${{ github.event_name }}" == "release" ]]; then
             BUILD_CONTEXT="release"
             SHOULD_PUSH="true"
+          elif [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            BUILD_CONTEXT="auto-sync"
+            SHOULD_PUSH="true"
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             BUILD_CONTEXT="manual"
             SHOULD_PUSH="${{ github.event.inputs.push_to_registry || 'true' }}"
@@ -107,6 +113,13 @@ jobs:
             VERSION="${{ github.event.release.tag_name }}"
             CLEAN_VERSION="${VERSION#v}"
             TAGS="${{ env.IMAGE_NAME }}:${CLEAN_VERSION},${{ env.IMAGE_NAME }}:${VERSION},${{ env.IMAGE_NAME }}:latest"
+            RXIV_VERSION="$CLEAN_VERSION"
+            RXIV_SOURCE="pypi"
+          elif [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            # Auto-sync from rxiv-maker releases
+            DISPATCH_VERSION="${{ github.event.client_payload.version }}"
+            CLEAN_VERSION="${{ github.event.client_payload.clean_version }}"
+            TAGS="${{ env.IMAGE_NAME }}:${CLEAN_VERSION},${{ env.IMAGE_NAME }}:${DISPATCH_VERSION},${{ env.IMAGE_NAME }}:latest"
             RXIV_VERSION="$CLEAN_VERSION"
             RXIV_SOURCE="pypi"
           elif [[ "${{ github.event_name }}" == "schedule" ]]; then
@@ -138,6 +151,12 @@ jobs:
           echo "🔄 Push: $SHOULD_PUSH"
           echo "🖥️  Platforms: $PLATFORMS"
           echo "📦 Rxiv Source: $RXIV_SOURCE"
+
+          # Show repository_dispatch details if applicable
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            echo "🔄 Auto-sync triggered by: ${{ github.event.client_payload.triggered_by }}"
+            echo "🔗 Source release: ${{ github.event.client_payload.release_url }}"
+          fi
 
       - name: Log in to Docker Hub
         if: steps.meta.outputs.should_push == 'true'
