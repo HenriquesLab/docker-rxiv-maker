@@ -1,33 +1,58 @@
 # Docker Infrastructure for Rxiv-Maker
 
-Docker image building infrastructure for rxiv-maker with pre-installed rxiv-maker via UV.
+**Streamlined Docker build system** for rxiv-maker with pre-installed rxiv-maker via UV.
 
-## Architecture
+## 🎯 **Quick Start**
 
-**v2.5.0+**: rxiv-maker is pre-installed during Docker build via UV
-**v2.4.x**: Runtime dependency injection (deprecated)
+### Using Pre-built Images
 
-### Key Changes
-- rxiv-maker pre-installed via UV during build
-- Direct terminal usage, no runtime installation
-- Faster startup (~3s vs 30-60s)
-- Consistent versions locked at build time
+```bash
+# Interactive terminal with your manuscript
+docker run -it --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest
 
-## Build Schedule
+# Direct command execution
+docker run --rm -v $(pwd):/workspace henriqueslab/rxiv-maker-base:latest rxiv pdf .
+```
 
-- **Weekly**: Monday 2 AM UTC with latest rxiv-maker
-- **On-Demand**: Manual workflow dispatch
-- **Release**: Triggered by rxiv-maker releases
+### Building Locally
 
-## Repository Structure
+```bash
+# Simple build (from images/base directory)
+cd images/base && ./build.sh --local
+
+# Build and push to registry
+cd images/base && ./build.sh --tag v1.0.0
+
+# Test existing image
+./test-docker-image.sh henriqueslab/rxiv-maker-base:latest
+
+# Or use Makefile (recommended)
+cd images/base && make image-build
+cd images/base && make image-push
+```
+
+## 🏗️ **Architecture**
+
+**Current (v2.5.0+)**: Pre-installed rxiv-maker via UV during Docker build
+- ✅ **Direct terminal usage** - no runtime installation
+- ✅ **Fast startup** (~3s vs 30-60s)
+- ✅ **Consistent versions** locked at build time
+- ✅ **Streamlined CI** - single workflow instead of 5+
+
+## 📁 **Repository Structure**
 
 ```
 docker-rxiv-maker/
-├── .github/workflows/       # CI/CD workflows
-├── images/base/            # Dockerfile and build scripts
-├── scripts/                # Helper scripts (in container)
-├── docs/                   # Technical documentation
-└── tests/                  # Build verification
+├── .github/workflows/
+│   ├── docker.yml                  # Unified CI workflow
+│   └── gemini-*.yml               # AI assistant workflows
+├── images/base/
+│   ├── Dockerfile                 # Production image definition
+│   ├── build.sh                   # Build script
+│   └── Makefile                   # Build automation
+├── scripts/                       # Helper scripts (in container)
+├── test-docker-image.sh           # Comprehensive test suite
+└── docs/                          # Documentation
 ```
 
 ## Quick Start
@@ -74,45 +99,84 @@ docker run -it --rm -v $(pwd):/workspace image:latest
 # rxiv commands work immediately
 ```
 
-## Image Details
+## 🔧 **Streamlined Build System**
 
-- **Repository**: `henriqueslab/rxiv-maker-base`
-- **Tags**: `latest`, `v2.5.x`
-- **Platforms**: AMD64, ARM64
-- **Contents**:
-  - rxiv-maker (pre-installed via UV)
-  - TeX Live (complete LaTeX)
-  - Python 3.11 + scientific libraries
-  - R + graphics packages
-  - Mermaid.ink API support
-
-## Building Locally
+### **For Developers**
 
 ```bash
-cd images/base
-./build.sh           # Build local
-./build.sh --push    # Build and push
+# Local development build
+cd images/base && ./build.sh --local --platform linux/amd64
+
+# Production build and push
+cd images/base && ./build.sh --tag latest
+
+# Test any image
+./test-docker-image.sh henriqueslab/rxiv-maker-base:dev
 ```
 
-## Troubleshooting
+### **CI/CD Workflow**
 
-**"rxiv command not found"**
-Pull latest image: `docker pull henriqueslab/rxiv-maker-base:latest`
+Single unified workflow handles all scenarios:
+- **Push to main/dev**: Builds and pushes latest
+- **Weekly schedule**: Builds with latest dependencies
+- **Releases**: Builds versioned images
+- **Manual dispatch**: Flexible build options
 
-**"workspace-setup.sh not found"**
-Update to v2.5.0+
+## 📦 **Image Details**
 
-**Looking for dev-mode.sh**
-Deprecated. Use direct terminal approach.
+- **Repository**: `henriqueslab/rxiv-maker-base`
+- **Tags**: `latest`, `weekly`, version tags (e.g., `v1.6.1`)
+- **Platforms**: AMD64, ARM64
+- **Size**: ~2GB (optimized)
+- **Contents**:
+  - ✅ rxiv-maker (pre-installed via UV)
+  - ✅ TeX Live (complete LaTeX)
+  - ✅ Python 3.11 + scientific libraries
+  - ✅ R + graphics packages
+  - ✅ All system dependencies
 
-## Recent Fixes (Sept 24, 2025)
+## 🔧 **Troubleshooting**
 
-- Fixed GitHub Actions workflow failures (image tag mismatch)
-- Corrected Dockerfile paths and labels
-- Updated test architecture for local image verification
+**Build failures**: Check GitHub Actions logs in the unified `docker.yml` workflow
+
+**"rxiv command not found"**: Pull latest image or rebuild:
+```bash
+docker pull henriqueslab/rxiv-maker-base:latest
+```
+
+**Local build issues**: Use the build script or Makefile:
+```bash
+cd images/base && ./build.sh --help
+# or
+cd images/base && make help
+```
+
+**Old workflows not working**: The system has been streamlined - use the new tools above
+
+## 🔄 **Recent Streamlining (Sept 29, 2025)**
+
+**Repository Cleanup & Optimization:**
+- ✅ **Eliminated redundancy** - removed 15+ duplicate files
+- ✅ **Consolidated workflows** - single unified Docker workflow
+- ✅ **Streamlined build tools** - single source of truth (build.sh)
+- ✅ **Modernized Makefile** - updated for new architecture
+- ✅ **Simplified structure** - removed broken/deprecated scripts
+- ✅ **Maintained functionality** - all features preserved
+
+## 📝 **Important Notes**
+
+**Multi-Platform Support:**
+- AMD64 and ARM64 both supported
+- ARM64 builds use QEMU (slower but necessary)
+- Weekly builds refresh all packages (intentional for security)
+
+**Build Performance:**
+- Local builds: ~5-10 minutes (single platform)
+- Multi-platform builds: ~30 minutes (Docker Hub push)
+- Container startup: ~3 seconds (pre-installed rxiv-maker)
 
 ---
 
-**Version**: v2.5.0-uv-preinstalled
-**Updated**: September 24, 2025
-**Status**: Operational
+**Version**: v2.5.0-streamlined
+**Updated**: September 29, 2025
+**Status**: Fully Operational 🚀

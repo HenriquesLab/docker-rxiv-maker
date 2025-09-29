@@ -1,15 +1,15 @@
 # ======================================================================
-# Rxiv-Maker Docker Image Management Makefile (AMD64 only)
+# Rxiv-Maker Docker Image Management Makefile
 # ======================================================================
 # This Makefile contains developer/maintainer commands for building and
 # managing Docker images. End users should run rxiv-maker commands directly
 # within Docker containers for containerized execution.
 #
-# ARCHITECTURE: AMD64 and ARM64 supported
-# Works on all architectures without browser dependencies
+# ARCHITECTURE: Multi-platform (AMD64 and ARM64 supported)
+# Pre-installed rxiv-maker via UV - ready for immediate use
 #
 # Usage:
-#   cd src/docker
+#   cd images/base
 #   make help
 #   make image-build
 #   make image-push
@@ -30,8 +30,8 @@ image-build:
 	@echo "🐳 Building Docker image locally (safe mode)..."
 	@echo "📋 Image: $(DOCKER_HUB_REPO):$(DOCKER_IMAGE_TAG)"
 	@echo "🏗️  Platform: Host architecture (for local loading)"
-	@echo "🛡️  Using safe build wrapper to prevent crashes"
-	@./build-safe.sh --local --tag $(DOCKER_IMAGE_TAG) --repo $(DOCKER_HUB_REPO) --platform linux/amd64
+	@echo "🔧 Using production build script"
+	@./build.sh --local --tag $(DOCKER_IMAGE_TAG) --repo $(DOCKER_HUB_REPO) --platform linux/amd64
 
 # Build and push AMD64 Docker image to DockerHub
 .PHONY: image-push
@@ -40,10 +40,10 @@ image-push:
 	@echo "📋 Image: $(DOCKER_HUB_REPO):$(DOCKER_IMAGE_TAG)"
 	@echo "🏗️  Platforms: $(BUILD_PLATFORMS)"
 	@echo "🚀 Destination: DockerHub"
-	@echo "🛡️  Using safe build wrapper to prevent crashes"
+	@echo "🔧 Using production build script"
 	@echo "⏰ Multi-platform builds can take 30+ minutes"
 	@echo "💡 Ensure you're logged in: docker login"
-	@./build-safe.sh --tag $(DOCKER_IMAGE_TAG) --repo $(DOCKER_HUB_REPO) --platform $(BUILD_PLATFORMS)
+	@./build.sh --tag $(DOCKER_IMAGE_TAG) --repo $(DOCKER_HUB_REPO) --platform $(BUILD_PLATFORMS)
 
 # Build and push in background (for very long builds)
 .PHONY: image-push-bg
@@ -55,7 +55,7 @@ image-push-bg:
 	@echo "⏰ Running in background - check logs in src/docker/"
 	@echo "💡 Use 'make build-status' to monitor progress"
 	@echo "💡 Use 'docker images $(DOCKER_HUB_REPO)' to check completion"
-	@nohup ./build-safe.sh --tag $(DOCKER_IMAGE_TAG) --repo $(DOCKER_HUB_REPO) --platform $(BUILD_PLATFORMS) > build-bg-$(shell date +%Y%m%d-%H%M%S).log 2>&1 &
+	@nohup ./build.sh --tag $(DOCKER_IMAGE_TAG) --repo $(DOCKER_HUB_REPO) --platform $(BUILD_PLATFORMS) > build-bg-$(shell date +%Y%m%d-%H%M%S).log 2>&1 &
 	@echo "🚀 Background build started! Check status with 'make build-status'"
 
 # Check status of background builds
@@ -64,8 +64,8 @@ build-status:
 	@echo "🔍 Checking Docker build status..."
 	@echo ""
 	@echo "📊 Build processes:"
-	@if pgrep -f "build-safe.sh" >/dev/null 2>&1; then \
-		echo "✅ Build process running (PID: $$(pgrep -f "build-safe.sh"))"; \
+	@if pgrep -f "build.sh" >/dev/null 2>&1; then \
+		echo "✅ Build process running (PID: $$(pgrep -f "build.sh"))"; \
 	else \
 		echo "❌ No build process found"; \
 	fi
@@ -83,8 +83,8 @@ build-status:
 image-local:
 	@echo "🐳 Building Docker image for local testing (safe mode)..."
 	@echo "📋 Image: $(DOCKER_HUB_REPO):test"
-	@echo "🛡️  Using safe build wrapper to prevent crashes"
-	@./build-safe.sh --local --tag test --repo $(DOCKER_HUB_REPO) --platform linux/amd64
+	@echo "🔧 Using production build script"
+	@./build.sh --local --tag test --repo $(DOCKER_HUB_REPO) --platform linux/amd64
 
 # Multi-platform builds now supported
 # Both AMD64 and ARM64 architectures work without browser dependencies
@@ -101,18 +101,20 @@ image-build-fast:
 .PHONY: image-test
 image-test: image-local
 	@echo "🧪 Testing Docker image functionality..."
+	@echo "📋 Testing pre-installed rxiv-maker..."
+	@docker run --rm $(DOCKER_HUB_REPO):test rxiv --version
 	@echo "📋 Testing Python dependencies..."
 	@docker run --rm $(DOCKER_HUB_REPO):test python -c "import matplotlib, numpy, pandas, yaml; print('✅ Python dependencies OK')"
 	@echo "📋 Testing LaTeX installation..."
 	@docker run --rm $(DOCKER_HUB_REPO):test pdflatex --version | head -1
 	@echo "📋 Testing R installation..."
 	@docker run --rm $(DOCKER_HUB_REPO):test R --version | head -1
-	@echo "📋 Testing mermaid.ink API support..."
-	@docker run --rm $(DOCKER_HUB_REPO):test python -c "import requests; print('✅ Mermaid.ink API ready')"
+	@echo "📋 Testing helper scripts..."
+	@docker run --rm $(DOCKER_HUB_REPO):test usage.sh
 	@echo "✅ All Docker image tests passed!"
 
 # Architecture support: AMD64 and ARM64
-# Mermaid.ink API approach works on all platforms without browser or Node.js dependencies
+# Pre-installed rxiv-maker ready for immediate use on all platforms
 
 # Docker Hub login helper
 .PHONY: login
@@ -189,8 +191,8 @@ help:
 	@echo "============================================="
 	@echo ""
 	@echo "🚀 ESSENTIAL COMMANDS:"
-	@echo "  make image-build     - Build single-platform image locally (safe mode)"
-	@echo "  make image-push      - Build and push AMD64 image to DockerHub (safe mode)"
+	@echo "  make image-build     - Build single-platform image locally"
+	@echo "  make image-push      - Build and push multi-platform image to DockerHub"
 	@echo "  make image-push-bg   - Build and push in background (avoids timeouts)"
 	@echo "  make build-status    - Check status of background builds"
 	@echo "  make image-test      - Build and test image functionality"
@@ -198,8 +200,8 @@ help:
 	@echo "  make help            - Show this help message"
 	@echo ""
 	@echo "🔧 DEVELOPMENT COMMANDS:"
-	@echo "  make image-local      - Build for local testing only (safe mode)"
-	@echo "  make image-build-fast - Build AMD64 image (fast/unsafe mode)"
+	@echo "  make image-local      - Build for local testing only"
+	@echo "  make image-build-fast - Build AMD64 image (fast mode)"
 	@echo "  make image-clean      - Clean up local Docker images"
 	@echo "  make info             - Show Docker system information"
 	@echo ""
@@ -219,16 +221,16 @@ help:
 	@echo "  make image-build DOCKER_HUB_REPO=myuser/rxiv-base # Use different repo"
 	@echo ""
 	@echo "🔗 RELATED FILES:"
-	@echo "  - build.sh           # Main build script"
-	@echo "  - build-safe.sh      # Safe build wrapper (prevents crashes)"
+	@echo "  - build.sh           # Production build script"
 	@echo "  - Dockerfile         # Image definition"
 	@echo "  - README.md          # Documentation"
+	@echo "  - ../../test-docker-image.sh  # Comprehensive test suite"
 	@echo ""
-	@echo "🛡️  SAFE BUILD MODE:"
-	@echo "  - Default for all builds to prevent system crashes"
-	@echo "  - Monitors resources and provides progress updates"
-	@echo "  - Handles memory constraints and timeouts gracefully"
-	@echo "  - Use *-fast targets for debugging if safe mode has issues"
+	@echo "🏗️  BUILD FEATURES:"
+	@echo "  - Multi-platform support (AMD64 + ARM64)"
+	@echo "  - Pre-installed rxiv-maker via UV"
+	@echo "  - Ready for immediate terminal usage"
+	@echo "  - Comprehensive validation during build"
 	@echo ""
 	@echo "📝 NOTE: End users should run rxiv-maker commands directly within Docker containers."
 	@echo "         These Makefile commands are for Docker image maintainers only."

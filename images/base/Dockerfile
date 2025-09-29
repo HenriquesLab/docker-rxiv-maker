@@ -1,18 +1,9 @@
-# ======================================================================
-# Rxiv-Maker Base Docker Image - Ubuntu R Packages Optimized (Single Stage)
-# ======================================================================
-# This Docker image contains all dependencies AND pre-installed rxiv-maker.
-# Ready for direct terminal usage with no runtime dependency installation needed.#
-# ARCHITECTURE SUPPORT: AMD64 and ARM64
-#
-# 🚀 REVOLUTIONARY UBUNTU R PACKAGES OPTIMIZATION:
-# - Uses Ubuntu's pre-compiled R packages instead of 44+ minute source compilation
-# - Eliminates ARM64 timeout issues that were causing workflow failures
-# - 80-95% build speedup: ~30s vs 44+ minutes, smaller image size
-# - Fixes: systemfonts, ragg, other graphics packages ARM64 compilation bottleneck
-# ======================================================================
-
 FROM ubuntu:22.04
+
+# Build arguments for version and metadata
+ARG RXIV_VERSION="latest"
+ARG BUILD_DATE
+ARG BUILDKIT_INLINE_CACHE=1
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -72,12 +63,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     r-cran-tidyr \
     r-cran-svglite
 
-# 🚀 REVOLUTIONARY: Install essential R packages using Ubuntu's pre-compiled packages
-# This replaces 44+ minutes of source compilation with seconds of package installation
+# Install Ubuntu's pre-compiled R packages (key optimization)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-    # Core infrastructure packages (instant install from Ubuntu)
+    # Core infrastructure packages
     r-cran-cli \
     r-cran-rlang \
     r-cran-lifecycle \
@@ -85,18 +75,29 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     r-cran-magrittr \
     r-cran-stringi \
     r-cran-stringr \
-    # Network and data packages (instant install from Ubuntu)
+    # Network and data packages
     r-cran-httr \
     r-cran-jsonlite \
     r-cran-xml2 \
     r-cran-lubridate \
     r-cran-rvest \
-    # Graphics packages (these were the problematic ones taking 44+ minutes!)
+    # Graphics packages (these were the problematic ones!)
     r-cran-systemfonts \
     r-cran-ragg \
+    # Academic publishing and command-line packages
+    r-cran-optparse \
+    r-cran-cairo \
+    r-cran-gridextra \
+    r-cran-knitr \
+    r-cran-rmarkdown \
+    r-cran-devtools \
+    # Statistical and data manipulation packages
+    r-cran-reshape2 \
+    r-cran-plyr \
+    r-cran-car \
     && rm -rf /var/lib/apt/lists/*
 
-# Install fonts
+# Install fonts first (before LaTeX to avoid conflicts)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -114,27 +115,24 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && fc-cache -fv \
     && rm -rf /var/lib/apt/lists/*
 
-# Install LaTeX packages
+# Configure Posit Package Manager for binary R packages (10x speed boost)
+RUN echo 'options(repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"))' >> /etc/R/Rprofile.site \
+    && echo 'options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(), paste(getRversion(), R.version["platform"], R.version["arch"], R.version["os"])))' >> /etc/R/Rprofile.site \
+    && echo '# Configure Posit Package Manager for Ubuntu 22.04 binary packages' >> /etc/R/Rprofile.site \
+    && echo '# This provides pre-compiled binaries instead of source compilation' >> /etc/R/Rprofile.site
+
+# Install LaTeX with minimal essential packages only
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections \
-    && apt-get update \
+    apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     texlive-latex-base \
     texlive-latex-recommended \
     texlive-fonts-recommended \
-    texlive-fonts-extra \
     texlive-latex-extra \
     texlive-science \
-    texlive-pictures \
-    texlive-bibtex-extra \
+    texlive-pstricks \
     biber \
-    texlive-lang-english \
-    texlive-plain-generic \
-    texlive-xetex \
-    texlive-luatex \
-    texlive-extra-utils \
-    latexdiff \
     && rm -rf /var/lib/apt/lists/*
 
 # Add deadsnakes PPA for Python 3.11
@@ -149,7 +147,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python3-pip \
     python3-setuptools \
     python3-wheel \
-    cython3 \
     file \
     && rm -rf /var/lib/apt/lists/*
 
@@ -203,7 +200,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     "tomli>=2.0.0,<3.0.0" \
     "ruff>=0.8.0,<1.0.0"
 
-# Create a non-root user for security (but allow GitHub Actions to work)
+# Create a non-root user for security
 RUN groupadd -r rxivmaker && useradd -r -g rxivmaker -d /home/rxivmaker -s /bin/bash rxivmaker \
     && mkdir -p /home/rxivmaker \
     && chown rxivmaker:rxivmaker /home/rxivmaker
@@ -228,21 +225,7 @@ ENV FC_CACHE_DIR=/tmp/fontconfig-cache
 # Set environment variables for R
 ENV R_LIBS_USER=/home/rxivmaker/.R/library
 
-# Create comprehensive dependency verification script
-RUN echo '#!/bin/bash' > /usr/local/bin/verify-python-deps.sh && \
-    echo 'echo "Verifying Python dependencies..."' >> /usr/local/bin/verify-python-deps.sh && \
-    echo 'echo "Testing requests library for mermaid.ink API..."' >> /usr/local/bin/verify-python-deps.sh && \
-    echo 'python3 -c "import sys, requests, base64; print(f\"Python: {sys.version}\"); print(f\"Requests: {requests.__version__}\"); print(\"✅ Mermaid.ink API integration ready!\")"' >> /usr/local/bin/verify-python-deps.sh && \
-    echo 'echo "Testing other Python dependencies..."' >> /usr/local/bin/verify-python-deps.sh && \
-    echo 'python3 -c "import matplotlib.pyplot, numpy, pandas, seaborn, yaml; print(\"✅ Core scientific libraries verified!\")"' >> /usr/local/bin/verify-python-deps.sh && \
-    echo 'echo "Testing R Ubuntu packages (ultra-fast install verification)..."' >> /usr/local/bin/verify-python-deps.sh && \
-    echo 'R -e "ubuntu_packages <- c(\"cli\", \"rlang\", \"lifecycle\", \"vctrs\", \"magrittr\", \"stringi\", \"stringr\", \"httr\", \"jsonlite\", \"xml2\", \"lubridate\", \"rvest\", \"systemfonts\", \"ragg\"); for (pkg in ubuntu_packages) { if (require(pkg, character.only = TRUE, quietly = TRUE)) { cat(\"✅ Ubuntu R package:\", pkg, \"\\n\") } else { cat(\"❌ Missing:\", pkg, \"\\n\"); quit(status = 1) } }"' >> /usr/local/bin/verify-python-deps.sh && \
-    echo 'R -e "system_packages <- c(\"dplyr\", \"ggplot2\", \"scales\", \"readr\", \"tidyr\", \"svglite\"); for (pkg in system_packages) { if (require(pkg, character.only = TRUE, quietly = TRUE)) { cat(\"✅ System R package:\", pkg, \"\\n\") } else { cat(\"❌ Missing:\", pkg, \"\\n\"); quit(status = 1) } }"' >> /usr/local/bin/verify-python-deps.sh && \
-    echo 'echo "All dependencies (Python + R) verified successfully!"' >> /usr/local/bin/verify-python-deps.sh
-RUN chmod +x /usr/local/bin/verify-python-deps.sh
-
-# Install rxiv-maker via UV during build time (NEW POLICY)
-# This replaces the old APT installation + runtime dependency injection approach
+# Install rxiv-maker via UV during build time (CRITICAL FOR NEW POLICY)
 RUN echo "[INFO] Installing rxiv-maker via UV during Docker build..." && \
     uv pip install --system rxiv-maker --no-cache-dir && \
     echo "[SUCCESS] Rxiv-maker installed via UV!" && \
@@ -253,27 +236,23 @@ RUN echo "[INFO] Verifying rxiv-maker installation..." && \
     rxiv --version && \
     echo "✅ Rxiv-maker ready for terminal usage"
 
-# Copy terminal-focused helper scripts (NEW POLICY)
-# Note: Build context is repository root, so paths are relative to root
+# Copy terminal-focused helper scripts
 COPY scripts/workspace-setup.sh /usr/local/bin/workspace-setup.sh
 COPY scripts/usage.sh /usr/local/bin/usage.sh
 RUN chmod +x /usr/local/bin/workspace-setup.sh /usr/local/bin/usage.sh
 
-# Note: siunitx package is included via texlive-science package
-
-# Run dependency verification during build to catch issues early
-RUN /usr/local/bin/verify-python-deps.sh
-
 # Add labels for metadata
 LABEL maintainer="Rxiv-Maker Project"
 LABEL description="Ubuntu-based Docker Image with Pre-installed Rxiv-Maker via UV - Ready for Terminal Usage"
-LABEL version="2.5.0-uv-preinstalled"
+LABEL version="2.5.0-working-test"
 LABEL org.opencontainers.image.source="https://github.com/henriqueslab/docker-rxiv-maker"
 LABEL org.opencontainers.image.description="Ubuntu-based image with rxiv-maker pre-installed via UV for direct terminal usage"
 LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.variant="uv-preinstalled"
+LABEL org.opencontainers.image.variant="working-test"
 LABEL org.opencontainers.image.title="Rxiv-Maker Base Image"
 LABEL org.opencontainers.image.vendor="HenriquesLab"
+LABEL rxiv-maker.version="${RXIV_VERSION}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
 
 # For GitHub Actions, we need to stay as root to allow workspace access
 # USER rxivmaker

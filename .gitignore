@@ -42,3 +42,5 @@ test-results/
 *.tmp
 *.temp
 .cache/
+.gemini/
+gha-creds-*.json

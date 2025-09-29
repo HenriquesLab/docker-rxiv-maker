@@ -1,0 +1,203 @@
+name: Docker Build & Push
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'images/**'
+      - 'scripts/**'
+      - '.github/workflows/docker.yml'
+
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'images/**'
+      - 'scripts/**'
+      - '.github/workflows/docker.yml'
+
+  schedule:
+    # Weekly build every Monday at 2 AM UTC
+    - cron: '0 2 * * 1'
+
+  release:
+    types: [published]
+
+  workflow_dispatch:
+    inputs:
+      push_to_registry:
+        description: 'Push to Docker Hub'
+        required: false
+        default: true
+        type: boolean
+      platforms:
+        description: 'Target platforms'
+        required: false
+        default: 'linux/amd64,linux/arm64'
+        type: string
+      custom_tag:
+        description: 'Custom tag (optional)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: henriqueslab/rxiv-maker-base
+
+jobs:
+  build:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate build metadata
+        id: meta
+        run: |
+          # Determine build context
+          BUILD_CONTEXT="unknown"
+          SHOULD_PUSH="false"
+          PLATFORMS="${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}"
+
+          # Set build context and push decision
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            BUILD_CONTEXT="main-push"
+            SHOULD_PUSH="true"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            BUILD_CONTEXT="weekly"
+            SHOULD_PUSH="true"
+          elif [[ "${{ github.event_name }}" == "release" ]]; then
+            BUILD_CONTEXT="release"
+            SHOULD_PUSH="true"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            BUILD_CONTEXT="manual"
+            SHOULD_PUSH="${{ github.event.inputs.push_to_registry || 'true' }}"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BUILD_CONTEXT="pr-test"
+            SHOULD_PUSH="false"
+          fi
+
+          # Generate tags
+          TAGS=""
+          BUILD_DATE=$(date -Iseconds)
+          RXIV_VERSION="latest"
+
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            CLEAN_VERSION="${VERSION#v}"
+            TAGS="${{ env.IMAGE_NAME }}:${CLEAN_VERSION},${{ env.IMAGE_NAME }}:${VERSION},${{ env.IMAGE_NAME }}:latest"
+            RXIV_VERSION="$CLEAN_VERSION"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            WEEKLY_TAG="weekly-$(date +%Y-%m-%d)"
+            TAGS="${{ env.IMAGE_NAME }}:weekly,${{ env.IMAGE_NAME }}:${WEEKLY_TAG},${{ env.IMAGE_NAME }}:latest"
+          elif [[ "${{ github.event.inputs.custom_tag }}" != "" ]]; then
+            CUSTOM_TAG="${{ github.event.inputs.custom_tag }}"
+            TAGS="${{ env.IMAGE_NAME }}:${CUSTOM_TAG},${{ env.IMAGE_NAME }}:latest"
+          else
+            TAGS="${{ env.IMAGE_NAME }}:dev,${{ env.IMAGE_NAME }}:latest"
+          fi
+
+          # Set outputs
+          echo "build_context=$BUILD_CONTEXT" >> $GITHUB_OUTPUT
+          echo "should_push=$SHOULD_PUSH" >> $GITHUB_OUTPUT
+          echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+          echo "rxiv_version=$RXIV_VERSION" >> $GITHUB_OUTPUT
+
+          echo "🐳 Build Context: $BUILD_CONTEXT"
+          echo "📦 Tags: $TAGS"
+          echo "🔄 Push: $SHOULD_PUSH"
+          echo "🖥️  Platforms: $PLATFORMS"
+
+      - name: Log in to Docker Hub
+        if: steps.meta.outputs.should_push == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PUSH }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: images/base/Dockerfile
+          platforms: ${{ steps.meta.outputs.platforms }}
+          push: ${{ steps.meta.outputs.should_push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=Rxiv-Maker Base Image
+            org.opencontainers.image.description=Ubuntu-based Docker image with pre-installed rxiv-maker via UV
+            org.opencontainers.image.source=https://github.com/HenriquesLab/docker-rxiv-maker
+            org.opencontainers.image.vendor=HenriquesLab
+            org.opencontainers.image.created=${{ steps.meta.outputs.build_date }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            rxiv-maker.version=${{ steps.meta.outputs.rxiv_version }}
+            rxiv-maker.build-context=${{ steps.meta.outputs.build_context }}
+          build-args: |
+            RXIV_VERSION=${{ steps.meta.outputs.rxiv_version }}
+            BUILD_DATE=${{ steps.meta.outputs.build_date }}
+            BUILDKIT_INLINE_CACHE=1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test image functionality
+        if: always()
+        run: |
+          echo "🧪 Testing built image functionality..."
+
+          # Get first tag for testing
+          FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | cut -d',' -f1)
+          echo "📋 Testing image: $FIRST_TAG"
+
+          # Test basic functionality
+          if ${{ steps.meta.outputs.should_push }} == "true"; then
+            # If pushed, test by pulling
+            echo "🔄 Pulling and testing pushed image..."
+            docker pull "$FIRST_TAG"
+            TEST_IMAGE="$FIRST_TAG"
+          else
+            # If not pushed, test local build
+            echo "🔄 Testing local build..."
+            TEST_IMAGE="$FIRST_TAG"
+          fi
+
+          # Run functionality tests
+          echo "🎯 Testing rxiv-maker availability..."
+          timeout 60s docker run --rm "$TEST_IMAGE" rxiv --version
+
+          echo "🎯 Testing Python environment..."
+          timeout 60s docker run --rm "$TEST_IMAGE" python3 -c "import numpy, pandas, matplotlib; print('✅ Python environment OK')"
+
+          echo "🎯 Testing LaTeX environment..."
+          timeout 60s docker run --rm "$TEST_IMAGE" pdflatex --version | head -1
+
+          echo "✅ All tests passed!"
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Context:** ${{ steps.meta.outputs.build_context }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** ${{ steps.meta.outputs.platforms }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Pushed:** ${{ steps.meta.outputs.should_push }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ steps.meta.outputs.should_push }}" == "true" && "${{ job.status }}" == "success" ]]; then
+            echo "**🎉 Images Available:**" >> $GITHUB_STEP_SUMMARY
+            echo '${{ steps.meta.outputs.tags }}' | tr ',' '\n' | sed 's/^/- `/' | sed 's/$/`/' >> $GITHUB_STEP_SUMMARY
+          fi
