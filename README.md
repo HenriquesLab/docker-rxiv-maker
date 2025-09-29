@@ -125,7 +125,7 @@ Single unified workflow handles all scenarios:
 ## 📦 **Image Details**
 
 - **Repository**: `henriqueslab/rxiv-maker-base`
-- **Tags**: `latest`, `weekly`, version tags (e.g., `v1.6.1`)
+- **Tags**: `latest`, `dev`, `weekly`, version tags (e.g., `v1.6.1`)
 - **Platforms**: AMD64, ARM64
 - **Size**: ~2GB (optimized)
 - **Contents**:
@@ -134,6 +134,31 @@ Single unified workflow handles all scenarios:
   - ✅ Python 3.11 + scientific libraries
   - ✅ R + graphics packages
   - ✅ All system dependencies
+
+### 🏷️ **Tag Strategy**
+
+| Tag | rxiv-maker Source | Usage | Update Frequency |
+|-----|------------------|--------|------------------|
+| **`latest`** | 🔗 **PyPI releases** | ✅ **Production** | On GitHub releases |
+| **`dev`** | 📦 **GitHub repository** | ⚠️ **Development** | On main branch pushes |
+| **`weekly`** | 🔗 **PyPI releases** | 🔄 **Fresh packages** | Every Monday 2AM UTC |
+| **`v1.2.3`** | 🔗 **PyPI releases** | 📌 **Pinned version** | Manual releases |
+
+### 📋 **Recommended Usage**
+
+```bash
+# Production use (stable PyPI releases)
+docker run henriqueslab/rxiv-maker-base:latest
+
+# Development testing (latest repository code)
+docker run henriqueslab/rxiv-maker-base:dev
+
+# Weekly refreshed packages (latest security updates)
+docker run henriqueslab/rxiv-maker-base:weekly
+
+# Specific version (reproducible builds)
+docker run henriqueslab/rxiv-maker-base:v1.6.1
+```
 
 ## 🔧 **Troubleshooting**
 

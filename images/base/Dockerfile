@@ -4,6 +4,8 @@ FROM ubuntu:22.04
 ARG RXIV_VERSION="latest"
 ARG BUILD_DATE
 ARG BUILDKIT_INLINE_CACHE=1
+ARG RXIV_SOURCE="pypi"
+ARG RXIV_REPO_URL="https://github.com/HenriquesLab/rxiv-maker.git"
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -227,8 +229,14 @@ ENV R_LIBS_USER=/home/rxivmaker/.R/library
 
 # Install rxiv-maker via UV during build time (CRITICAL FOR NEW POLICY)
 RUN echo "[INFO] Installing rxiv-maker via UV during Docker build..." && \
-    uv pip install --system rxiv-maker --no-cache-dir && \
-    echo "[SUCCESS] Rxiv-maker installed via UV!" && \
+    if [ "$RXIV_SOURCE" = "repo" ]; then \
+        echo "[INFO] Installing from repository: $RXIV_REPO_URL" && \
+        uv pip install --system "git+${RXIV_REPO_URL}" --no-cache-dir; \
+    else \
+        echo "[INFO] Installing from PyPI" && \
+        uv pip install --system rxiv-maker --no-cache-dir; \
+    fi && \
+    echo "[SUCCESS] Rxiv-maker installed!" && \
     rxiv --version
 
 # Verify installation during build to catch issues early
@@ -252,6 +260,8 @@ LABEL org.opencontainers.image.variant="working-test"
 LABEL org.opencontainers.image.title="Rxiv-Maker Base Image"
 LABEL org.opencontainers.image.vendor="HenriquesLab"
 LABEL rxiv-maker.version="${RXIV_VERSION}"
+LABEL rxiv-maker.source="${RXIV_SOURCE}"
+LABEL rxiv-maker.repo-url="${RXIV_REPO_URL}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 
 # For GitHub Actions, we need to stay as root to allow workspace access

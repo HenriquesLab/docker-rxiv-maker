@@ -38,6 +38,14 @@ on:
         description: 'Custom tag (optional)'
         required: false
         type: string
+      rxiv_source:
+        description: 'Rxiv-maker source (pypi or repo)'
+        required: false
+        default: 'pypi'
+        type: choice
+        options:
+          - pypi
+          - repo
 
 permissions:
   contents: read
@@ -89,24 +97,31 @@ jobs:
             SHOULD_PUSH="false"
           fi
 
-          # Generate tags
+          # Generate tags and determine rxiv-maker source
           TAGS=""
           BUILD_DATE=$(date -Iseconds)
           RXIV_VERSION="latest"
+          RXIV_SOURCE="pypi"
 
           if [[ "${{ github.event_name }}" == "release" ]]; then
             VERSION="${{ github.event.release.tag_name }}"
             CLEAN_VERSION="${VERSION#v}"
             TAGS="${{ env.IMAGE_NAME }}:${CLEAN_VERSION},${{ env.IMAGE_NAME }}:${VERSION},${{ env.IMAGE_NAME }}:latest"
             RXIV_VERSION="$CLEAN_VERSION"
+            RXIV_SOURCE="pypi"
           elif [[ "${{ github.event_name }}" == "schedule" ]]; then
             WEEKLY_TAG="weekly-$(date +%Y-%m-%d)"
             TAGS="${{ env.IMAGE_NAME }}:weekly,${{ env.IMAGE_NAME }}:${WEEKLY_TAG},${{ env.IMAGE_NAME }}:latest"
+            RXIV_SOURCE="pypi"
           elif [[ "${{ github.event.inputs.custom_tag }}" != "" ]]; then
             CUSTOM_TAG="${{ github.event.inputs.custom_tag }}"
-            TAGS="${{ env.IMAGE_NAME }}:${CUSTOM_TAG},${{ env.IMAGE_NAME }}:latest"
+            TAGS="${{ env.IMAGE_NAME }}:${CUSTOM_TAG}"
+            # For custom tags, allow choosing source via input
+            RXIV_SOURCE="${{ github.event.inputs.rxiv_source || 'pypi' }}"
           else
-            TAGS="${{ env.IMAGE_NAME }}:dev,${{ env.IMAGE_NAME }}:latest"
+            # Main branch pushes create dev tag with repo source
+            TAGS="${{ env.IMAGE_NAME }}:dev"
+            RXIV_SOURCE="repo"
           fi
 
           # Set outputs
@@ -116,11 +131,13 @@ jobs:
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
           echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
           echo "rxiv_version=$RXIV_VERSION" >> $GITHUB_OUTPUT
+          echo "rxiv_source=$RXIV_SOURCE" >> $GITHUB_OUTPUT
 
           echo "🐳 Build Context: $BUILD_CONTEXT"
           echo "📦 Tags: $TAGS"
           echo "🔄 Push: $SHOULD_PUSH"
           echo "🖥️  Platforms: $PLATFORMS"
+          echo "📦 Rxiv Source: $RXIV_SOURCE"
 
       - name: Log in to Docker Hub
         if: steps.meta.outputs.should_push == 'true'
@@ -149,6 +166,7 @@ jobs:
           build-args: |
             RXIV_VERSION=${{ steps.meta.outputs.rxiv_version }}
             BUILD_DATE=${{ steps.meta.outputs.build_date }}
+            RXIV_SOURCE=${{ steps.meta.outputs.rxiv_source }}
             BUILDKIT_INLINE_CACHE=1
           cache-from: type=gha
           cache-to: type=gha,mode=max
