@@ -15,10 +15,33 @@ ENV TZ=UTC
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
+# Create retry helper script for handling transient apt mirror errors
+RUN printf '#!/bin/bash\n\
+set -e\n\
+max_attempts=3\n\
+attempt=1\n\
+while [ $attempt -le $max_attempts ]; do\n\
+    echo "[Attempt $attempt/$max_attempts] Running: $*"\n\
+    if "$@"; then\n\
+        echo "[Success] Command succeeded"\n\
+        exit 0\n\
+    fi\n\
+    exit_code=$?\n\
+    if [ $attempt -lt $max_attempts ]; then\n\
+        sleep_time=$((attempt * 10))\n\
+        echo "[Retry] Command failed with exit code $exit_code. Retrying in ${sleep_time}s..."\n\
+        sleep $sleep_time\n\
+    else\n\
+        echo "[Failed] Command failed after $max_attempts attempts with exit code $exit_code"\n\
+        exit $exit_code\n\
+    fi\n\
+    attempt=$((attempt + 1))\n\
+done\n' > /usr/local/bin/retry && chmod +x /usr/local/bin/retry
+
 # Update package lists and install core system dependencies
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    retry bash -c 'apt-get update && apt-get install -y --no-install-recommends \
     # Core system utilities
     curl \
     wget \
@@ -49,12 +72,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libharfbuzz-dev \
     libfribidi-dev \
     # Version control
-    git
+    git'
 
 # Install R and essential system R packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    retry bash -c 'apt-get update && apt-get install -y --no-install-recommends \
     r-base \
     r-base-dev \
     # Basic R packages available in Ubuntu
@@ -63,12 +86,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     r-cran-scales \
     r-cran-readr \
     r-cran-tidyr \
-    r-cran-svglite
+    r-cran-svglite'
 
 # Install Ubuntu's pre-compiled R packages (key optimization)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    retry bash -c 'apt-get update && apt-get install -y --no-install-recommends \
     # Core infrastructure packages
     r-cran-cli \
     r-cran-rlang \
@@ -97,12 +120,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     r-cran-reshape2 \
     r-cran-plyr \
     r-cran-car \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*'
 
 # Install fonts first (before LaTeX to avoid conflicts)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    retry bash -c 'apt-get update && apt-get install -y --no-install-recommends \
     # Essential fonts for LaTeX compilation
     fonts-liberation \
     fonts-dejavu-core \
@@ -115,7 +138,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     fontconfig \
     fontconfig-config \
     && fc-cache -fv \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*'
 
 # Configure Posit Package Manager for binary R packages (10x speed boost)
 RUN echo 'options(repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"))' >> /etc/R/Rprofile.site \
@@ -126,7 +149,7 @@ RUN echo 'options(repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux
 # Install LaTeX with minimal essential packages only
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update \
+    retry bash -c 'apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     texlive-latex-base \
     texlive-latex-recommended \
@@ -135,12 +158,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     texlive-science \
     texlive-pstricks \
     biber \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*'
 
 # Add deadsnakes PPA for Python 3.11
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    add-apt-repository ppa:deadsnakes/ppa \
+    retry bash -c 'add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
     python3.11 \
@@ -150,7 +173,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python3-setuptools \
     python3-wheel \
     file \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*'
 
 # Set Python 3.11 as default and install uv
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
