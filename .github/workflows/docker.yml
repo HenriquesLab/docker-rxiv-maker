@@ -101,6 +101,8 @@ jobs:
           elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
             BUILD_CONTEXT="pr-test"
             SHOULD_PUSH="false"
+            # For PRs, build single platform for testing
+            PLATFORMS="linux/amd64"
           fi
 
           # Generate tags and determine rxiv-maker source
@@ -172,6 +174,7 @@ jobs:
           file: images/base/Dockerfile
           platforms: ${{ steps.meta.outputs.platforms }}
           push: ${{ steps.meta.outputs.should_push }}
+          load: ${{ steps.meta.outputs.should_push == 'false' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: |
             org.opencontainers.image.title=Rxiv-Maker Base Image
@@ -200,14 +203,16 @@ jobs:
           echo "📋 Testing image: $FIRST_TAG"
 
           # Test basic functionality
-          if ${{ steps.meta.outputs.should_push }} == "true"; then
+          if [[ "${{ steps.meta.outputs.should_push }}" == "true" ]]; then
             # If pushed, test by pulling
             echo "🔄 Pulling and testing pushed image..."
             docker pull "$FIRST_TAG"
             TEST_IMAGE="$FIRST_TAG"
           else
             # If not pushed, test local build
-            echo "🔄 Testing local build..."
+            echo "🔄 Testing locally loaded image..."
+            echo "📋 Available images:"
+            docker images | grep rxiv-maker-base || true
             TEST_IMAGE="$FIRST_TAG"
           fi
 
