@@ -1,3 +1,6 @@
+[![DOI: 10.1242/jcs.265183](https://img.shields.io/badge/DOI-10.1242%2Fjcs.265183-blue)](https://doi.org/10.1242/jcs.265183)
+[![arXiv](https://img.shields.io/badge/arXiv-2508.00836-b31b1b.svg)](https://arxiv.org/abs/2508.00836)
+
 # Docker Infrastructure for Rxiv-Maker
 
 **Streamlined Docker build system** for rxiv-maker with pre-installed rxiv-maker via UV.
@@ -179,6 +182,24 @@ Available inside container:
 - `workspace-setup.sh` - Interactive workspace setup
 - `usage.sh` - Usage instructions
 - `rxiv --version` - Check version
+
+###  **Citation**
+
+If you use Rxiv-Maker or these Docker images in your research, please cite:
+
+```bibtex
+@article{saraiva_2025_rxivmaker,
+  title={Rxiv-Maker: An automated template engine for streamlined scientific publications},
+  author={Bruno M. Saraiva and Rita Carlota and António D. Brito and Iván Hidalgo-Cenalmor and Guillaume Jacquemet and Ricardo Henriques},
+  journal={Journal of Cell Science},
+  year={2026},
+  doi={10.1242/jcs.265183},
+  url={https://doi.org/10.1242/jcs.265183}
+}
+```
+
+- **Journal Article**: [10.1242/jcs.265183](https://doi.org/10.1242/jcs.265183) (*Journal of Cell Science*)
+- **Preprint**: [10.48550/arXiv.2508.00836](https://doi.org/10.48550/arXiv.2508.00836) (arXiv)
 
 ### 📄 **License**
 
